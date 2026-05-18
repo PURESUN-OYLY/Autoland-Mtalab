@@ -1,5 +1,8 @@
 *
 !.gitignore
 !Autoland_drone.m
-!Autoland_forest.m
+!Autoland_lidar.m
+!Autoland_map.m
+!Main.m
+
 !MATLAB.prj
