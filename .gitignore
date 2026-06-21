@@ -1,8 +1,10 @@
 *
+!.gitattributes
 !.gitignore
 !Autoland_drone.m
 !Autoland_lidar.m
 !Autoland_map.m
 !Main.m
+!Video_recorder.m
 
 !MATLAB.prj
