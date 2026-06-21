@@ -51,13 +51,24 @@ classdef Autoland_drone < handle
             % function update(obj, globalTargetPos, scanPoints)
             % 1. Target Attraction Force
             error_pos = globalTargetPos(:) - obj.Position;
-            F_att = obj.Kp * error_pos;
+            dist_error = norm(error_pos);
+
+            if dist_error > 5
+                F_att = obj.Kp * (error_pos / dist_error) * 5;
+            else
+                F_att = obj.Kp * error_pos;
+            end
 
             % 2. Dynamic Repulsion Forces
             F_rep = [0; 0; 0];
+
+            % The first frame is empty, skip it
             if ~isempty(scanPoints)
                 numPoints = size(scanPoints, 1);
                 rep_acc = [0; 0; 0];
+
+                % Valid points in scanPoints, only consider points around the drone's position
+                validPoints = 0;
 
                 for i = 1:numPoints
                     dist_vector = obj.Position - scanPoints(i, :)';
@@ -66,16 +77,35 @@ classdef Autoland_drone < handle
                     dist = max(dist, 1.5);
 
                     if dist < obj.influence_dist && scanPoints(i, 3) > obj.Position(3) - 4
-                    % if dist < obj.influence_dist
                         dir = dist_vector / dist;
+
+                        dir(3) = abs(dir(3)) + 0.6;
+
+                        tangent_dir = [-dir(2); dir(1); 0]; 
+                        combined_dir = dir + 0.8 * tangent_dir;
+                        combined_dir = combined_dir / norm(combined_dir);
+
                         mag = obj.K_rep * (1/dist - 1/obj.influence_dist) * (1/(dist^2));
-                        rep_acc = rep_acc + mag * dir;
+                        rep_acc = rep_acc + mag * combined_dir;
+                        % rep_acc = rep_acc + mag * dir;
+                        
+                        % count valid points
+                        validPoints = validPoints + 1;
                     end
                 end
 
                 % Dampen collective swarm force to avoid explosion
-                % F_rep = rep_acc / log10(numPoints + 5);
-                F_rep = rep_acc / sqrt(numPoints);
+                if validPoints > 0
+                    F_rep = rep_acc / sqrt(validPoints);
+                else
+                    F_rep = [0; 0; 0];
+                end
+
+                % Attenuate repulsion force as we move away from the target
+                % This prevents the drone from overshooting the target
+                dist_to_target = norm(globalTargetPos(:) - obj.Position);
+                attenuation = min(1.0, dist_to_target / 4.0); % 
+                F_rep = F_rep * attenuation;
             end
 
             % 3. Total Force Composition with Damping Friction
@@ -151,6 +181,6 @@ classdef Autoland_drone < handle
 end
 
 function dY = m_unwrap(dY)
-while dY > pi,  dY = dY - 2*pi; end
-while dY < -pi, dY = dY + 2*pi; end
+    while dY > pi,  dY = dY - 2*pi; end
+    while dY < -pi, dY = dY + 2*pi; end
 end

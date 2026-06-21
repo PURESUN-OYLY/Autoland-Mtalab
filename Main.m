@@ -1,11 +1,17 @@
 clear; clc; close all; % Clear workspace
 
-%% 0. Global Parameters(for configuration)
-axis equal;
+RECORD_VIDEO = false;
 
 %% 1. Initialize Decoupled Forest Terrain
 mapEnvironment = Autoland_map();
-mapEnvironment.generateEnvironment(0.015);
+
+% Buid map, trees ratio input, higher will be create mor trees
+mapEnvironment.generateEnvironment(0.01);
+
+mapper = Autoland_mapper(0.5);
+
+%% 1.1 Initialize Video Recorder
+videoRecorder = Video_recorder('Autoland_Drone.mp4');
 
 %% 2. Initialize Upgraded Autoland Drone Model
 % uav = Autoland_drone([5; 5; 10]);
@@ -20,24 +26,33 @@ lidarSensor = Autoland_lidar(120, 60, 25, 192, 96, 4, false);
 lidarSensor.setTerrain(mapEnvironment.X, mapEnvironment.Y, mapEnvironment.Z_ground);
 disp(['LiDAR system initialized: Scan range = ' num2str(lidarSensor.beamRange) ' m']);
 
-% surfObj = findobj(gca, 'Type', 'Surface');
-% if ~isempty(surfObj)
-%     % Give real terrain data to LiDAR system
-%     lidarSensor.setTerrain(surfObj(1).XData, surfObj(1).YData, surfObj(1).ZData);
-%     disp(['LiDAR system initialized: Scan range = ' num2str(lidarSensor.beamRange) ' m']);
-% end
+%% Initialize Visualization Environment
+axis equal; % Maintain aspect ratio
+axis vis3d; % Enable 3D visualization
 
-%% 5. Real-time Closed-Loop Loop
+%% Real-time Closed-Loop Loop
 for t = 1:steps
     currentScanPoints = lidarSensor.getScanCloud(uav.Position, uav.Yaw, mapEnvironment.treeLocations);
-    % uav.update(mapEnvironment.targetPos, currentScanPoints);
-    uav.update(mapEnvironment.targetPos, currentScanPoints, lidarSensor.F_terrain);
+
+    mapper.updateMap(currentScanPoints);
+
+    % Update the drone's position
+    uav.update(mapEnvironment.targetPos, mapper.GlobalMap, lidarSensor.F_terrain);
+    % uav.update(mapEnvironment.targetPos, currentScanPoints, lidarSensor.F_terrain);
 
     % render the scene every 2 steps, olnly for faster visualization
     if mod(t, 2) == 0
+        % Update the map
+        mapper.renderMap();
+
+        % Render the scene
         uav.render(currentScanPoints);
         lidarSensor.updateBeams(uav.Position, uav.Yaw);
         drawnow limitrate;
+
+        if RECORD_VIDEO
+            videoRecorder.captureFrame();
+        end
     end
 
     %  check if the drone has reached the target
@@ -46,7 +61,14 @@ for t = 1:steps
         break;
     end
 
-    % display progress bar
+    % display progress in percentage
     fprintf('Progress: %.2f%%\r', t / steps * 100);
-    pause(uav.dt);
+    
+    % pause for a short time to allow visualization
+    pause(uav.dt / 10);
+end
+
+%% 5. Close Video Recorder
+if RECORD_VIDEO
+    videoRecorder.closeVideo();
 end

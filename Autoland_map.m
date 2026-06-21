@@ -48,7 +48,7 @@ classdef Autoland_map < handle
                     % obj.treeLocations = [obj.treeLocations; tx, ty, trunkR, trunkH, h_base];
                     canopyR = 2.5 + rand * 1.5;
 
-                    obj.treeLocations=[obj.treeLocations, tx, ty, trunkR, trunkH, h_base, canopyR];
+                    obj.treeLocations=[obj.treeLocations; tx, ty, trunkR, trunkH, h_base, canopyR];
 
                     % Construct cylindrical model representations for tree trunk
                     [cX, cY, cZ] = cylinder([1, 1], 12);
