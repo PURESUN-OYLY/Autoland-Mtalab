@@ -8,6 +8,11 @@ classdef Autoland_map < handle
         targetPos;          % Calculated landing destination vector
         startPos;           % Starting position vector
         Fterrain;           % Terrain height function
+
+        % UI control
+        h_terrain           % Terrain handles
+        h_trees = []        % Tree handles
+        h_markers = []      % Start and end point markers handles
     end
 
     methods
@@ -27,6 +32,12 @@ classdef Autoland_map < handle
         end
 
         function generateEnvironment(obj, treeDensity)
+            % Exclude edges of the map
+            % obj.validSlopeMask(obj.X < 5 | obj.Y < 5 | obj.X > obj.fieldSize - 5 | obj.Y > obj.fieldSize - 5) = 0;
+
+            %Render and save the terrain
+            % obj.h_terrain = surf(obj.X, obj.Y, obj.Z_ground, 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+
             % Render environment background canvas
             surf(obj.X, obj.Y, obj.Z_ground, 'EdgeColor', 'none', 'FaceAlpha', 0.8);
             colormap(summer); hold on; light; lighting gouraud;
@@ -71,7 +82,7 @@ classdef Autoland_map < handle
 
             if ~isempty(r)
 
-                scatter3(                     obj.X(connectedRegions), obj.Y(connectedRegions), obj.Z_ground(connectedRegions) + 0.1, 20,                     'y', 'filled', 'MarkerEdgeAlpha', 0.3, 'MarkerFaceAlpha', 0.3);
+                scatter3(obj.X(connectedRegions), obj.Y(connectedRegions), obj.Z_ground(connectedRegions) + 0.1, 20, 'y', 'filled', 'MarkerEdgeAlpha', 0.3, 'MarkerFaceAlpha', 0.3);
 
                 CC = bwconncomp(connectedRegions);
                 numRegions = CC.NumObjects;
@@ -111,12 +122,10 @@ classdef Autoland_map < handle
             end
 
             % Draw simulation markers
-            % plot3(5, 5, interp2(obj.X, obj.Y, obj.Z_ground, 5, 5)+1, 'bp', 'MarkerSize', 15, 'MarkerFaceColor', 'b');
             plot3(obj.startPos(1), obj.startPos(2), obj.startPos(3), 'bp', 'MarkerSize',15, 'MarkerFaceColor','b');
             text(obj.startPos(1), obj.startPos(2), obj.startPos(3)+3, 'Start point', 'FontWeight','bold');
             plot3(obj.targetPos(1), obj.targetPos(2), obj.targetPos(3), 'rp', 'MarkerSize',15, 'MarkerFaceColor','r');
             text(obj.targetPos(1), obj.targetPos(2), obj.targetPos(3)+3, 'Landing point', 'FontWeight','bold');
-            % text(5, 5, interp2(obj.X, obj.Y, obj.Z_ground, 5, 5)+4, 'Start point', 'FontWeight', 'bold');
             xlabel('X (m)'); ylabel('Y (m)'); zlabel('Height (m)');
             view(-45, 35); axis tight;
         end

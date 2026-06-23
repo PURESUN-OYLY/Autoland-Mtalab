@@ -1,6 +1,6 @@
 clear; clc; close all; % Clear workspace
 
-RECORD_VIDEO = false;
+RECORD_VIDEO = true;
 
 %% 1. Initialize Decoupled Forest Terrain
 mapEnvironment = Autoland_map();
