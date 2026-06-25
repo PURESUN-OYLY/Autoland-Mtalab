@@ -2,75 +2,89 @@ clear; clc; close all; % Clear workspace
 
 RECORD_VIDEO = false;
 
-% Initialize Decoupled Forest Terrain
+% ========== Parameter Settings ==========
+entryAngleDeg = 0;           % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
+entryAltitude = 12;          % Entry altitude (m)
+entryDistFromEdge = 3;       % Distance outside map edge (m)
+maxSlopeDeg = 5;             % Max slope for landing (deg)
+droneDiameter = 2.4;         % Drone diameter (m)
+extraLandingClearance = 1.2; % Extra clearance (m), landing diameter = droneDiameter + extraLandingClearance
+% =========================================
+
 mapEnvironment = Autoland_map();
-
-% Buid map, trees ratio input, higher will be create mor trees
 mapEnvironment.generateEnvironment();
+fieldSize = mapEnvironment.fieldSize;
 
-mapper = Autoland_mapper(0.5);
+entryAngleRad = deg2rad(entryAngleDeg);
+entryDir = [cos(entryAngleRad); sin(entryAngleRad)];
+center = [fieldSize/2; fieldSize/2];
+oppDir = -entryDir;
 
-% Initialize Video Recorder
+t_candidates = [];
+if oppDir(1) > 1e-9
+    t_candidates = [t_candidates; (fieldSize - center(1)) / oppDir(1)];
+elseif oppDir(1) < -1e-9
+    t_candidates = [t_candidates; -center(1) / oppDir(1)];
+end
+if oppDir(2) > 1e-9
+    t_candidates = [t_candidates; (fieldSize - center(2)) / oppDir(2)];
+elseif oppDir(2) < -1e-9
+    t_candidates = [t_candidates; -center(2) / oppDir(2)];
+end
+
+if ~isempty(t_candidates)
+    t_boundary = min(t_candidates(t_candidates > 0));
+    boundaryPos = center + oppDir * t_boundary;
+    startPosXY = boundaryPos + oppDir * entryDistFromEdge;
+else
+    startPosXY = [0; fieldSize/2];
+end
+startPos = [startPosXY; entryAltitude];
+initialYaw = entryAngleRad;
+
+mapper = Autoland_mapper(0.4, droneDiameter, extraLandingClearance);
 videoRecorder = Video_recorder('Autoland_Drone.mp4');
-
-% Initialize Upgraded Autoland Drone Model
-uav = Autoland_drone([5; 5; 10]);
-% uav = Autoland_drone(mapEnvironment.startPos);
+uav = Autoland_drone(startPos, initialYaw);
 totalTime = 120;
 steps = totalTime / uav.dt;
 
-% Initialize Decoupled Telemetry LiDAR Array
-lidarSensor = Autoland_lidar(120, 60, 25, 192, 96, 2, true);
-
-% Initialize LiDAR System with Real Terrain Data
+% LiDAR: 96x72 resolution, pitch 0~(-120)deg, roll -45~(-135)deg
+lidarSensor = Autoland_lidar(90, 120, 25, 96, 72, 2, false);
 lidarSensor.setTerrain(mapEnvironment.X, mapEnvironment.Y, mapEnvironment.Z_ground);
-disp(['LiDAR system initialized: Scan range = ' num2str(lidarSensor.beamRange) ' m']);
+lidarSensor.setObstacles(mapEnvironment.rockLocations, mapEnvironment.stumpPos, mapEnvironment.bushLocations);
+disp(['LiDAR initialized: ' num2str(lidarSensor.hRes) 'x' num2str(lidarSensor.vRes) ' resolution, range=' num2str(lidarSensor.beamRange) 'm']);
 
-% Initialize Visualization Environment
-axis equal; % Maintain aspect ratio
-axis vis3d; % Enable 3D visualization
+axis equal; axis vis3d;
 
-targetPos = [20; 20; 10];
+landingSites = [];
 
-% Real-time Closed-Loop Loop
 for t = 1:steps
     currentScanPoints = lidarSensor.getScanCloud(uav.Position, uav.Yaw, mapEnvironment.treeLocations);
-
     mapper.updateMap(currentScanPoints);
-
-    % Update the drone's position
-    uav.update(targetPos, mapper.GlobalMap, lidarSensor.F_terrain);
-    % uav.update(mapEnvironment.targetPos, currentScanPoints, lidarSensor.F_terrain);
-
-    % render the scene every 2 steps, olnly for faster visualization
-    if mod(t, 2) == 0
-        % Update the map
-        mapper.renderMap();
-
-        % Render the scene
-        uav.render(currentScanPoints);
-        lidarSensor.updateBeams(uav.Position, uav.Yaw);
-        drawnow limitrate;
-
-        if RECORD_VIDEO
-            videoRecorder.captureFrame();
-        end
+    
+    % Analyze terrain more frequently
+    if mod(t, 5) == 0
+        landingSites = mapper.analyzeTerrain(maxSlopeDeg);
     end
-
-    %  check if the drone has reached the target
-    if norm(uav.Position - targetPos) < 0.6
-        disp('Drone has safely reached the target!');
+    
+    uav.update(currentScanPoints, lidarSensor.F_terrain, mapper.AllLandingSites);
+    
+    if mod(t, 2) == 0
+        mapper.renderMap();
+        uav.render(currentScanPoints);
+        % lidarSensor.updateBeams(uav.Position, uav.Yaw);
+        drawnow limitrate;
+        if RECORD_VIDEO, videoRecorder.captureFrame(); end
+    end
+    
+    if strcmp(uav.State, 'LANDED')
+        disp('Simulation complete: Drone has landed successfully.');
         break;
     end
-
-    % display progress in percentage
-    fprintf('Progress: %.2f%%\r', t / steps * 100);
     
-    % pause for a short time to allow visualization
+    fprintf('Progress: %.2f%% | State: %s | Pos: [%.1f, %.1f, %.1f] | LandingSites: %d\r', ...
+        t / steps * 100, uav.State, uav.Position(1), uav.Position(2), uav.Position(3), size(landingSites,1));
     pause(uav.dt / 10);
 end
 
-%% 5. Close Video Recorder
-if RECORD_VIDEO
-    videoRecorder.closeVideo();
-end
+if RECORD_VIDEO, videoRecorder.closeVideo(); end

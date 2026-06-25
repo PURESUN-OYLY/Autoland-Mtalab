@@ -280,6 +280,9 @@ classdef Autoland_map < handle
                     obj.surf_obj(finalX, finalY, finalZ, groundZ, leafColor, [0.82, 0.5, 0.6], 0.6 + rand() * 0.2);
                 end
 
+                % Store bush data for LiDAR detection
+                obj.bushLocations = [obj.bushLocations; bx, by, bushRadiusX, bushRadiusZ, groundZ];
+
                 % Mask the area around the bush
                 distField = sqrt((obj.X - bx).^2 + (obj.Y - by).^2);
                 maskRange = bushRadiusX + 0.6;
