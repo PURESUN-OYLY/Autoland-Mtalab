@@ -1,41 +1,40 @@
 classdef Autoland_mapper < handle
     properties
-        GlobalMap = [];       % 存储全局点云矩阵 [X, Y, Z]
-        GridSize = 0.4;       % 体素栅格大小（单位：米）。值越小地图越精细，值越大越流畅
-        h_globalMapPlot       % 全局地图的图形句柄
+        GlobalMap = [];       % Global point cloud matrix, [X, Y, Z]
+        GridSize = 0.4;       % Voxel grid size (unit: meter). Smaller value means finer map, larger value means smoother visualization
+        h_globalMapPlot       % Global map plot handle
     end
-    
+
     methods
-        % 构造函数
         function obj = Autoland_mapper(gridSize)
-            if nargin >= 1
-                obj.GridSize = gridSize;
-            end
-            % 初始化一个空的 3D 绘图句柄，用于后续动态更新
+            % Default gridSize is 0.4
+            obj.GridSize = gridSize;
+
+            % Initialize the global map plot handle
             hold on;
             obj.h_globalMapPlot = plot3(NaN, NaN, NaN, '.', 'MarkerSize', 3);
         end
-        
+
         % 核心方法：向记忆中添加新扫描的点，并进行体素化去重
         function updateMap(obj, newPoints)
             if isempty(newPoints)
                 return;
             end
-            
+
             % 1. 将新点云与历史全局地图合并
             combinedPoints = [obj.GlobalMap; newPoints];
-            
-            % 2. 核心算法：基于三维体素（Voxel）的快速降采样与去重
-            % 将连续坐标映射到离散的小方格索引上
+
+            % 基于三维体素（Voxel）的快速降采样与去重
+            % Map continuous coordinates to discrete grid indices
             uGrid = round(combinedPoints / obj.GridSize);
-            % 利用 unique 函数去除同一个方格内的重复点
+            % Find unique grid indices, remove duplicates in same grid
             [~, uniqueIdx, ~] = unique(uGrid, 'rows', 'stable');
-            
-            % 3. 更新全局记忆
+
+            % Update the global map with the new points
             obj.GlobalMap = combinedPoints(uniqueIdx, :);
         end
-        
-        % 渲染全局地图
+
+        % Render the global map in 3D space
         function renderMap(obj)
             if ~isempty(obj.GlobalMap)
                 set(obj.h_globalMapPlot, ...

@@ -92,7 +92,7 @@ classdef Autoland_map < handle
             % Render trees
             disp('Render trees');
             if obj.renderTree
-                numTrees = randi([5,8]); % Random 5-8 trees
+                numTrees = randi([8,12]); % Random 8-12 trees
                 for i = 1:numTrees
                     % Make sure trees are not too close to the edges
                     tx = 5 + rand() * 20;
@@ -310,7 +310,7 @@ classdef Autoland_map < handle
                 obj.rockLocations = [obj.rockLocations; rx, ry, r_min, r_max, h_rock, groundZ];
 
                 % rock orientation
-                res = randi([50, 60]);
+                res = randi([30, 60]);
                 [sx, sy, sz] = sphere(res);
                 [TH, PH] = cart2sph(sx, sy, sz);
 
@@ -318,8 +318,8 @@ classdef Autoland_map < handle
                 noise2 = 0.01 * randn(size(sx));
 
                 totalNoise = 1 + noise1 + noise2;
-                minR = 0.82;
-                maxR = 1.18;
+                minR = 1.2;
+                maxR = 1.8;
                 totalNoise(totalNoise < minR) = minR;
                 totalNoise(totalNoise > maxR) = maxR;
 
@@ -387,7 +387,7 @@ classdef Autoland_map < handle
             rootGroundZ = obj.Fterrain(posx, posy);
 
             % Random trunk parameters
-            trunkTotalLen = 2.2 + rand() * 2.8;
+            trunkTotalLen = 4 + rand() * 2.8;
             trunkRootRadius = 0.22 + rand() * 0.32;
             bendAmplitude = 0.18 + rand() * 0.3;
             fallYaw = rand() * pi;       % Random yaw angle

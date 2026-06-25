@@ -204,7 +204,7 @@ classdef Autoland_lidar < handle
                     total_yaw = uavYaw + deg2rad(r_h);
                     dir = [cos(total_yaw)*cosd(r_v); sin(total_yaw)*cosd(r_v); sind(r_v)];
                     ray_end = uavPosition + dir * obj.beamRange;
-                    set(obj.h_rays{ray_idx}, 'XData', [uavPosition(1), ray_end(1)],                          'YData', [uavPosition(2), ray_end(2)],                          'ZData', [uavPosition(3), ray_end(3)]);
+                    set(obj.h_rays{ray_idx}, 'XData', [uavPosition(1), ray_end(1)], 'YData', [uavPosition(2), ray_end(2)], 'ZData', [uavPosition(3), ray_end(3)]);
                     ray_idx = ray_idx + 1;
                 end
             end
