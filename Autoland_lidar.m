@@ -251,7 +251,7 @@ classdef Autoland_lidar < handle
                 end
             end
             
-            valid_hits = min_ranges < obj.beamRange;
+            valid_hits = (min_ranges < obj.beamRange) & (~boundary_hits);
             if any(valid_hits)
                 fullCloud = uav_pos + dirs(valid_hits,:) .* min_ranges(valid_hits);
                 fullCloud = fullCloud + randn(size(fullCloud))*0.02;
