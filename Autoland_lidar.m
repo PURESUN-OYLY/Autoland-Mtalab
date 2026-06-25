@@ -6,8 +6,6 @@ classdef Autoland_lidar < handle
         hFOV = 90;
         vFOV = 120;
         downsampleFactor = 6;
-        showRays = false;
-        h_rays
 
         % Terrain Data properties
         terr_X, terr_Y, terr_Z
@@ -25,22 +23,13 @@ classdef Autoland_lidar < handle
     end
 
     methods
-        function obj = Autoland_lidar(hFOV, vFOV, maxRange, hRes, vRes, downsampleFactor, showRays)
+        function obj = Autoland_lidar(hFOV, vFOV, maxRange, hRes, vRes, downsampleFactor, ~)
             if nargin >= 1 && ~isempty(hFOV), obj.hFOV = hFOV; end
             if nargin >= 2 && ~isempty(vFOV), obj.vFOV = vFOV; end
             if nargin >= 3 && ~isempty(maxRange), obj.beamRange = min(max(maxRange, 0), 70); end
             if nargin >= 4 && ~isempty(hRes), obj.hRes = hRes; end
             if nargin >= 5 && ~isempty(vRes), obj.vRes = vRes; end
             if nargin >= 6 && ~isempty(downsampleFactor), obj.downsampleFactor = max(1, downsampleFactor); end
-            if nargin >= 7 && ~isempty(showRays), obj.showRays = showRays; end
-
-            if obj.showRays
-                [h_angles, ~] = meshgrid(linspace(-obj.hFOV/2, obj.hFOV/2, 5) - 90, linspace(0, -obj.vFOV, 3));
-                obj.h_rays = cell(numel(h_angles), 1);
-                for k = 1:numel(h_angles)
-                    obj.h_rays{k} = plot3([0,0], [0,0], [0,0], 'y:', 'LineWidth', 1);
-                end
-            end
         end
 
         function setTerrain(obj, X, Y, Z)
@@ -58,126 +47,107 @@ classdef Autoland_lidar < handle
         end
 
         function scanPoints = getScanCloud(obj, uavPosition, uavYaw, treeLocations)
-            % Only scan when inside map
             if uavPosition(1) < obj.mapMinX || uavPosition(1) > obj.mapMaxX || ...
                     uavPosition(2) < obj.mapMinY || uavPosition(2) > obj.mapMaxY
                 scanPoints = [];
                 return;
             end
 
-            % Generate pitch (elevation) and roll (azimuth) angles
-            % Pitch: 0 deg (horizontal forward) to -vFOV deg (rear-down)
-            % Roll: centered at -90 deg (forward), span hFOV deg
-
-            % pitch_angles = deg2rad(linspace(0, -obj.vFOV, obj.vRes));
-
-            % roll_angles  = deg2rad(linspace(-obj.hFOV/2, obj.hFOV/2, obj.hRes) - 90);
-
-            % [Pitch_mesh, Roll_mesh] = meshgrid(pitch_angles, roll_angles);
-
-            % % Convert user roll definition to standard azimuth (0 = forward)
-            % azimuth = Roll_mesh + deg2rad(90);
-            % abs_pitch = abs(Pitch_mesh);
-
-            % % Direction in body frame (Z-up), then rotate by yaw
-            % dX_body = cos(abs_pitch) .* cos(azimuth);
-            % dY_body = cos(abs_pitch) .* sin(azimuth);
-            % dZ_body = -sin(abs_pitch);
-
-            % dX = dX_body .* cos(uavYaw) - dY_body .* sin(uavYaw);
-            % dY = dX_body .* sin(uavYaw) + dY_body .* cos(uavYaw);
-            % dZ = dZ_body;
-
-            % 垂直角度：从水平(0°)向下扫到 -vFOV
-            % 映射到 phi：0° → pi/2，-vFOV → pi/2 + |vFOV|
-            pitch_angles = deg2rad(linspace(0, -obj.vFOV, obj.vRes));
-
-            % 水平角度：直接就是方位角 theta，0 = 正前方
-            roll_angles = deg2rad(linspace(-obj.hFOV/2, obj.hFOV/2, obj.hRes));
-
-            [Pitch_mesh, Roll_mesh] = meshgrid(pitch_angles, roll_angles);
-
-            %% 关键转换：pitch → phi，让中心线(0°) = 赤道(pi/2)
-            % pitch = 0°  → phi = pi/2（水平向前，赤道）
-            % pitch < 0°  → phi > pi/2（向下，南半球）
-            phi = pi/2 - Pitch_mesh;        % 0°→pi/2, -90°→pi
-
-            % 方位角直接用
-            theta = Roll_mesh;
-
-            %% 标准ISO球坐标 → 直角坐标（Z-up，X-前，Y-右）
-            dX_body = sin(phi) .* cos(theta);
-            dY_body = sin(phi) .* sin(theta);
-            dZ_body = cos(phi);             % 水平=0，向下<0，和原代码一致
-
-            %% 偏航旋转（不变）
+            % === Rotated spherical coordinates: equator at view center ===
+            % View center = front-down 60° in body frame
+            % Z' axis (new pole) = front-up 30° (perpendicular to view center)
+            % X' axis = front-down 60° (the view center direction)
+            % Rotation matrix R: new coords -> body coords
+            %   Z'=[0,0,1] -> [0.866,0,0.5] (front-up 30°)
+            %   X'=[1,0,0] -> [0.5,0,-0.866] (front-down 60°)
+            %   Y'=[0,1,0] -> [0,1,0] (unchanged)
+            % R = [0.5, 0, 0.866; 0, 1, 0; -0.866, 0, 0.5]
+            %
+            % In new coords: theta'=30°~150° (polar angle from Z'), phi'=-45°~45° (azimuth from X')
+            % No poles within view (0° and 180° are outside the range)
+            
+            theta_prime = deg2rad(linspace(30, 150, obj.vRes));
+            phi_prime = deg2rad(linspace(-45, 45, obj.hRes));
+            [Theta_mesh, Phi_mesh] = meshgrid(theta_prime, phi_prime);
+            
+            % Directions in new coordinate system (unit sphere)
+            dXp = sin(Theta_mesh) .* cos(Phi_mesh);
+            dYp = sin(Theta_mesh) .* sin(Phi_mesh);
+            dZp = cos(Theta_mesh);
+            
+            % Rotate to body frame: [dX_body; dY_body; dZ_body] = R * [dXp; dYp; dZp]
+            dX_body = 0.5 * dXp + 0.866 * dZp;
+            dY_body = dYp;
+            dZ_body = -0.866 * dXp + 0.5 * dZp;
+            
+            % Rotate by yaw around Z axis
             dX = dX_body .* cos(uavYaw) - dY_body .* sin(uavYaw);
             dY = dX_body .* sin(uavYaw) + dY_body .* cos(uavYaw);
             dZ = dZ_body;
-
+            
             dirs = [dX(:), dY(:), dZ(:)];
             numRays = size(dirs, 1);
             min_ranges = repmat(obj.beamRange, numRays, 1);
             uav_pos = uavPosition(:)';
-
+            
             % 1. Map boundary clipping
             dx = dirs(:, 1); dy = dirs(:, 2);
             t_x = inf(numRays, 1);
             t_x(dx > 1e-9) = (obj.mapMaxX - uav_pos(1)) ./ dx(dx > 1e-9);
             t_x(dx < -1e-9) = (obj.mapMinX - uav_pos(1)) ./ dx(dx < -1e-9);
             t_x(t_x <= 0) = inf;
-
+            
             t_y = inf(numRays, 1);
             t_y(dy > 1e-9) = (obj.mapMaxY - uav_pos(2)) ./ dy(dy > 1e-9);
             t_y(dy < -1e-9) = (obj.mapMinY - uav_pos(2)) ./ dy(dy < -1e-9);
             t_y(t_y <= 0) = inf;
-
+            
             t_boundary = min(t_x, t_y);
             boundary_hits = t_boundary < min_ranges;
             min_ranges(boundary_hits) = t_boundary(boundary_hits);
-
-            % 2. Terrain intersection (ray-marching, only downward rays)
+            
+            % 2. Terrain intersection (ray-marching with 1.0m step)
             if obj.has_terrain
                 valid_g = dirs(:, 3) < -1e-4;
                 idx_g = find(valid_g);
                 if ~isempty(idx_g)
                     step_size = 1.0;
                     t_steps = 0:step_size:obj.beamRange;
-
+                    
                     ray_X = uav_pos(1) + dirs(idx_g, 1) * t_steps;
                     ray_Y = uav_pos(2) + dirs(idx_g, 2) * t_steps;
                     ray_Z = uav_pos(3) + dirs(idx_g, 3) * t_steps;
-
+                    
                     terr_Z_sampled = obj.F_terrain(ray_X, ray_Y);
                     terr_Z_sampled(isnan(terr_Z_sampled)) = -1000;
-
+                    
                     hit_mask = ray_Z < terr_Z_sampled;
                     [hit_found, hit_idx] = max(hit_mask, [], 2);
                     actual_hits = hit_found > 0 & hit_idx > 1;
                     valid_k = find(actual_hits);
                     final_idx_g = idx_g(valid_k);
                     valid_hit_idx = hit_idx(valid_k);
-
+                    
                     if ~isempty(valid_k)
                         lin_idx_curr = sub2ind(size(ray_Z), valid_k, valid_hit_idx);
                         lin_idx_prev = sub2ind(size(ray_Z), valid_k, valid_hit_idx - 1);
-
+                        
                         z_ray1 = ray_Z(lin_idx_prev); z_terr1 = terr_Z_sampled(lin_idx_prev);
                         z_ray2 = ray_Z(lin_idx_curr); z_terr2 = terr_Z_sampled(lin_idx_curr);
-
+                        
                         t1 = t_steps(valid_hit_idx - 1)';
                         t2 = t_steps(valid_hit_idx)';
-
+                        
                         diff1 = z_ray1 - z_terr1;
                         diff2 = z_ray2 - z_terr2;
                         t_exact = t1 + (t2 - t1) .* diff1 ./ (diff1 - diff2);
-
+                        
                         update_mask = t_exact < min_ranges(final_idx_g);
                         min_ranges(final_idx_g(update_mask)) = t_exact(update_mask);
                     end
                 end
             end
-
+            
             % 3. Tree trunk and canopy intersection
             if ~isempty(treeLocations)
                 tx = treeLocations(:,1); ty = treeLocations(:,2);
@@ -185,15 +155,15 @@ classdef Autoland_lidar < handle
                 numTrees = length(tx);
                 for i = 1:numTrees
                     % Trunk cylinders
-                    dx = dirs(:,1); dy = dirs(:,2);
+                    dx_r = dirs(:,1); dy_r = dirs(:,2);
                     ox = uav_pos(1) - tx(i); oy = uav_pos(2) - ty(i);
-                    A = dx.^2 + dy.^2; B = 2 .* (ox.*dx + oy.*dy); C_cyl = ox.^2 + oy.^2 - tr(i)^2;
+                    A = dx_r.^2 + dy_r.^2; B = 2 .* (ox.*dx_r + oy.*dy_r); C_cyl = ox.^2 + oy.^2 - tr(i)^2;
                     delta_cyl = B.^2 - 4.*A.*C_cyl;
                     valid_cyl = delta_cyl >= 0;
                     if any(valid_cyl)
                         t_cyl = (-B(valid_cyl) - sqrt(delta_cyl(valid_cyl))) ./ (2.*A(valid_cyl));
                         hit_z = uav_pos(3) + t_cyl .* dirs(valid_cyl, 3);
-                        z_valid = (hit_z >= tb(i)) & (hit_z <= tb(i) + th(i)*0.5);
+                        z_valid = (hit_z >= tb(i)) & (hit_z <= tb(i) + th(i) + 0.5);
                         idx = find(valid_cyl);
                         final_cyl = idx(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
                         min_ranges(final_cyl) = t_cyl(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
@@ -213,15 +183,14 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-
-            % 4. Rock intersection (approximate as ellipsoids/bounding spheres)
+            
+            % 4. Rock intersection (bounding spheres)
             if ~isempty(obj.rockLocations)
                 rx = obj.rockLocations(:,1); ry = obj.rockLocations(:,2);
                 rr_min = obj.rockLocations(:,3); rr_max = obj.rockLocations(:,4);
                 rh = obj.rockLocations(:,5); rb = obj.rockLocations(:,6);
                 numRocks = length(rx);
                 for i = 1:numRocks
-                    % Bounding sphere: radius = max of the three semi-axes
                     rockR = max([rr_min(i), rr_max(i), rh(i)]) * 0.6;
                     rockCx = rx(i); rockCy = ry(i); rockCz = rb(i) + rh(i)*0.5;
                     vx = uav_pos(1) - rockCx; vy = uav_pos(2) - rockCy; vz = uav_pos(3) - rockCz;
@@ -237,16 +206,16 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-
-            % 5. Stump intersection (cylinders, similar to tree trunks)
+            
+            % 5. Stump intersection (cylinders)
             if ~isempty(obj.stumpPos)
                 sx = obj.stumpPos(:,1); sy = obj.stumpPos(:,2);
                 sr = obj.stumpPos(:,3); sh = obj.stumpPos(:,4); sb = obj.stumpPos(:,5);
                 numStumps = length(sx);
                 for i = 1:numStumps
-                    dx = dirs(:,1); dy = dirs(:,2);
+                    dx_r = dirs(:,1); dy_r = dirs(:,2);
                     ox = uav_pos(1) - sx(i); oy = uav_pos(2) - sy(i);
-                    A = dx.^2 + dy.^2; B = 2 .* (ox.*dx + oy.*dy); C_cyl = ox.^2 + oy.^2 - sr(i)^2;
+                    A = dx_r.^2 + dy_r.^2; B = 2 .* (ox.*dx_r + oy.*dy_r); C_cyl = ox.^2 + oy.^2 - sr(i)^2;
                     delta_cyl = B.^2 - 4.*A.*C_cyl;
                     valid_cyl = delta_cyl >= 0;
                     if any(valid_cyl)
@@ -259,8 +228,8 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-
-            % 6. Bush intersection (approximate as spheres)
+            
+            % 6. Bush intersection (spheres)
             if ~isempty(obj.bushLocations)
                 bx = obj.bushLocations(:,1); by = obj.bushLocations(:,2);
                 br = obj.bushLocations(:,3); bh = obj.bushLocations(:,4); bb = obj.bushLocations(:,5);
@@ -281,7 +250,7 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-
+            
             valid_hits = min_ranges < obj.beamRange;
             if any(valid_hits)
                 fullCloud = uav_pos + dirs(valid_hits,:) .* min_ranges(valid_hits);
@@ -289,53 +258,6 @@ classdef Autoland_lidar < handle
                 scanPoints = fullCloud(1:obj.downsampleFactor:end, :);
             else
                 scanPoints = [];
-            end
-        end
-
-        function updateBeams(obj, uavPosition, uavYaw)
-            if ~obj.showRays, return; end
-            ray_idx = 1;
-            for r_roll = linspace(-obj.hFOV/2, obj.hFOV/2, 5) - 90
-                for r_pitch = linspace(0, -obj.vFOV, 3)
-                    az = deg2rad(r_roll + 90);
-                    abs_p = abs(deg2rad(r_pitch));
-                    dXb = cos(abs_p) * cos(az);
-                    dYb = cos(abs_p) * sin(az);
-                    dZb = -sin(abs_p);
-                    dir = [dXb*cos(uavYaw) - dYb*sin(uavYaw);
-                        dXb*sin(uavYaw) + dYb*cos(uavYaw);
-                        dZb];
-                    t_max = obj.beamRange;
-                    if dir(1) > 1e-9
-                        t_bound = (obj.mapMaxX - uavPosition(1)) / dir(1);
-                    elseif dir(1) < -1e-9
-                        t_bound = (obj.mapMinX - uavPosition(1)) / dir(1);
-                    else
-                        t_bound = inf;
-                    end
-
-                    if t_bound > 0 && t_bound < t_max
-                        t_max = t_bound;
-                    end
-
-                    if dir(2) > 1e-9
-                        t_bound = (obj.mapMaxY - uavPosition(2)) / dir(2);
-                    elseif dir(2) < -1e-9
-                        t_bound = (obj.mapMinY - uavPosition(2)) / dir(2);
-                    else
-                        t_bound = inf;
-                    end
-
-                    if t_bound > 0 && t_bound < t_max
-                        t_max = t_bound;
-                    end
-
-                    ray_end = uavPosition + dir * t_max;
-
-                    set(obj.h_rays{ray_idx}, 'XData', [uavPosition(1), ray_end(1)], ...
-                        'YData', [uavPosition(2), ray_end(2)], 'ZData', [uavPosition(3), ray_end(3)]);
-                    ray_idx = ray_idx + 1;
-                end
             end
         end
     end
