@@ -1,7 +1,7 @@
 classdef Autoland_map < handle
     properties
         % Map parameters
-        fieldSize = 30;        % Map size in meters
+        mapSize = 30;        % Map size in meters
         gridRes = 0.5;         % Grid resolution in meters
         X, Y, Z_ground;        % Terrain grid
         validSlopeMask;        % Valid slope area mask
@@ -31,10 +31,13 @@ classdef Autoland_map < handle
     end
 
     methods
-        function obj = Autoland_map()
+        function obj = Autoland_map(mapSize, gridRes)
+            obj.mapSize = mapSize;
+            obj.gridRes = gridRes;
+
             disp('Building basic terrain grid...');
             % Generate basic terrain grid
-            [obj.X, obj.Y] = meshgrid(0:obj.gridRes:obj.fieldSize);
+            [obj.X, obj.Y] = meshgrid(0:obj.gridRes:obj.mapSize);
 
             % Generate basic terrain, with flat hills and small-scale noise
             % Base terrain with flat hills (preserving overall base height)
@@ -74,6 +77,9 @@ classdef Autoland_map < handle
 
             % Create terrain height interpolation function
             obj.Fterrain = scatteredInterpolant(obj.X(:), obj.Y(:), obj.Z_ground(:), 'linear', 'nearest');
+
+            % Generate environment
+            obj.generateEnvironment();
         end
 
         % Main environment generator function, step-by-step execution
@@ -191,10 +197,23 @@ classdef Autoland_map < handle
 
 
             %% Step9: Draw coordinate axis and view angle
+            axis equal;
+            
             disp('Draw coordinate axis and view angle');
-            xlabel('X (m)'); ylabel('Y (m)'); zlabel('Altitude (m)');
-            xlim([0 obj.fieldSize]); ylim([0 obj.fieldSize]);
-            view(-40, 32); axis equal tight;
+            xlabel('X (m)'); ylabel('Y (m)');
+            zlabel('Altitude (m)');
+            xlim([0 obj.mapSize]);
+            ylim([0 obj.mapSize]);
+            zlim([0 25])
+
+            % fix axis
+            axis manual;
+            axis vis3d;
+
+            % view(45, 30);
+            pos = get(gcf, 'Position');
+            set(gcf, 'Position', [pos(1) pos(2) 1024 768]);
+
             hold off;
             disp('Map environment generated successfully.');
         end
@@ -490,7 +509,7 @@ classdef Autoland_map < handle
 
             % Filter out the objects that are out of the map
             mapMin = 0;
-            mapMax = obj.fieldSize;
+            mapMax = obj.mapSize;
 
             outBorderMask = (x < mapMin) | (x > mapMax) | (y < mapMin) | (y > mapMax);
             x(outBorderMask) = NaN;

@@ -35,6 +35,11 @@ classdef Autoland_lidar < handle
                 obj.rockLocations = map.rockLocations;
                 obj.bushLocations = map.bushLocations;
             end
+
+            % generate terrain interpolant
+            % obj.F_terrain = map.Fterrain;
+            obj.setTerrain(map.X, map.Y, map.Z_ground);
+
         end
         
         function setTerrain(obj, X, Y, Z)

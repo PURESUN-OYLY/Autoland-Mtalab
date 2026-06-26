@@ -114,14 +114,8 @@ classdef Autoland_drone < handle
             if speed > obj.MaxSpeed, obj.Velocity = (obj.Velocity / speed) * obj.MaxSpeed; end
 
             obj.Position = obj.Position + obj.Velocity * obj.dt;
-            disp(obj.Position);
 
-            % check if the position is valid on the map
-            if obj.Position(1) > 0 && obj.Position(2) > 0
-                groundH = terrainF(obj.Position(1), obj.Position(2));
-            else
-                groundH = NaN;
-            end
+            groundH = terrainF(obj.Position(1), obj.Position(2));
 
             if ~isnan(groundH)
                 safeAlt = 3;

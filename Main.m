@@ -3,42 +3,45 @@ clear; clc; close all; % Clear workspace
 
 %% Parameter Settings
 % entryAngleDeg = rand * 360;  % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
-entryAngleDeg = 60;  % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
-entryAltitude = 12;          % Entry altitude (m)
-entryDistFromEdge = 0.2;     % Distance outside map edge (m)
-maxSlopeDeg = 5;             % Max slope for landing (deg)
-extraLandingClearance = 1.2; % Extra clearance (m), landing diameter = droneDiameter + extraLandingClearance
+entryAngleDeg = 120;         % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
+entryAltitude = 12;         % Entry altitude (m)
+entryDistFromEdge = 0.2;    % Distance outside map edge (m)
+maxSlopeDeg = 5;            % Max slope for landing (deg)
+extraLandingClearance = 1.2;% Extra clearance (m), landing diameter = droneDiameter + extraLandingClearance
+
+% Map Settings
+mapSize = 30;               % Map size (m)
+gridRes = 0.5;              % Grid resolution (m)
 
 % Drone Settings
-droneDiameter = 2;           % Drone diameter (m)
+droneDiameter = 2;          % Drone diameter (m)
 
 % Simulation Settings
 totalTime = 120;            % Total simulation time (s)
-simDt = 0.05;                % Simulation time step (s)
+simDt = 0.05;               % Simulation time step (s)
 
 % Video recorder settings
-RECORD_VIDEO = false;
+RECORD_VIDEO = true;
 
 
 %% Initialize environment map
-map = Autoland_map();
-map.generateEnvironment();
-fieldSize = map.fieldSize;
+map = Autoland_map(mapSize, gridRes);
+% view(entryAngleDeg, 45);
 
 %% Initialize drone entry position
 entryAngleRad = deg2rad(entryAngleDeg);
 entryDir = [cos(entryAngleRad); sin(entryAngleRad)];
-center = [fieldSize/2; fieldSize/2];
+center = [mapSize/2; mapSize/2];
 oppDir = -entryDir;
 
 t_candidates = [];
 if oppDir(1) > 1e-9
-    t_candidates = [t_candidates; (fieldSize - center(1)) / oppDir(1)];
+    t_candidates = [t_candidates; (mapSize - center(1)) / oppDir(1)];
 elseif oppDir(1) < -1e-9
     t_candidates = [t_candidates; -center(1) / oppDir(1)];
 end
 if oppDir(2) > 1e-9
-    t_candidates = [t_candidates; (fieldSize - center(2)) / oppDir(2)];
+    t_candidates = [t_candidates; (mapSize - center(2)) / oppDir(2)];
 elseif oppDir(2) < -1e-9
     t_candidates = [t_candidates; -center(2) / oppDir(2)];
 end
@@ -57,7 +60,7 @@ initialYaw = entryAngleRad;
 
 %% Initialize mapper
 mapper = Autoland_mapper(0.2, droneDiameter, extraLandingClearance);
-videoRecorder = Video_recorder('Autoland_Drone.mp4');
+videoRecorder = Video_recorder('Autoland_Drone.mp4', entryAngleDeg);
 steps = totalTime / simDt;
 
 %% Initialize LiDAR sensor
@@ -69,20 +72,17 @@ disp(['LiDAR initialized: ' num2str(lidar.hRes) 'x' num2str(lidar.vRes) ' resolu
 %% Initialize drone
 uav = Autoland_drone(startPos, initialYaw, droneDiameter, simDt);
 
-% fix axis
-axis equal; axis vis3d;
-
 landingSites = [];
 
 for t = 1:steps
     currentScanPoints = lidar.scan(uav.Position, uav.Yaw);
     mapper.updateMap(currentScanPoints);
-
+    
     % Analyze terrain more frequently
     if mod(t, 5) == 0
         landingSites = mapper.analyzeTerrain(maxSlopeDeg);
     end
-
+    
     uav.update(currentScanPoints, lidar.F_terrain, mapper.AllLandingSites);
 
     if mod(t, 2) == 0
