@@ -14,8 +14,8 @@ classdef Autoland_lidar < handle
 
         % Obstacle Data properties
         rockLocations = []
-        stumpPos = []
         bushLocations = []
+        treeLocations = []
 
         % Map boundary
         mapMinX = 0; mapMaxX = 30;
@@ -23,62 +23,49 @@ classdef Autoland_lidar < handle
     end
 
     methods
-        function obj = Autoland_lidar(hFOV, vFOV, maxRange, hRes, vRes, downsampleFactor, ~)
+        function obj = Autoland_lidar(hFOV, vFOV, maxRange, hRes, vRes, downsampleFactor, map)
             if nargin >= 1 && ~isempty(hFOV), obj.hFOV = hFOV; end
             if nargin >= 2 && ~isempty(vFOV), obj.vFOV = vFOV; end
             if nargin >= 3 && ~isempty(maxRange), obj.beamRange = min(max(maxRange, 0), 70); end
             if nargin >= 4 && ~isempty(hRes), obj.hRes = hRes; end
             if nargin >= 5 && ~isempty(vRes), obj.vRes = vRes; end
             if nargin >= 6 && ~isempty(downsampleFactor), obj.downsampleFactor = max(1, downsampleFactor); end
+            if nargin >= 7 && ~isempty(map)
+                obj.treeLocations = map.treeLocations;
+                obj.rockLocations = map.rockLocations;
+                obj.bushLocations = map.bushLocations;
+            end
         end
 
-        function setTerrain(obj, X, Y, Z)
-            obj.terr_X = X; obj.terr_Y = Y; obj.terr_Z = Z;
-            obj.F_terrain = griddedInterpolant(X', Y', Z', 'linear', 'none');
-            obj.has_terrain = true;
-            obj.mapMinX = min(X(:)); obj.mapMaxX = max(X(:));
-            obj.mapMinY = min(Y(:)); obj.mapMaxY = max(Y(:));
-        end
+        function scanPoints = scan(obj, uavPosition, uavYaw)
 
-        function setObstacles(obj, rockLocations, stumpPos, bushLocations)
-            obj.rockLocations = rockLocations;
-            obj.stumpPos = stumpPos;
-            obj.bushLocations = bushLocations;
-        end
-
-        function scanPoints = getScanCloud(obj, uavPosition, uavYaw, treeLocations)
+            % Map boundary check
             if uavPosition(1) < obj.mapMinX || uavPosition(1) > obj.mapMaxX || ...
                     uavPosition(2) < obj.mapMinY || uavPosition(2) > obj.mapMaxY
                 scanPoints = [];
                 return;
             end
 
-            % === Rotated spherical coordinates: equator at view center ===
-            % View center = front-down 60° in body frame
-            % Z' axis (new pole) = front-up 30° (perpendicular to view center)
-            % X' axis = front-down 60° (the view center direction)
-            % Rotation matrix R: new coords -> body coords
-            %   Z'=[0,0,1] -> [0.866,0,0.5] (front-up 30°)
-            %   X'=[1,0,0] -> [0.5,0,-0.866] (front-down 60°)
-            %   Y'=[0,1,0] -> [0,1,0] (unchanged)
-            % R = [0.5, 0, 0.866; 0, 1, 0; -0.866, 0, 0.5]
+            % === X-axis spherical coordinates: theta=0°=forward, theta=120°=rear-down 60° ===
+            % theta: polar angle from +X axis (forward), 0° to vFOV
+            % phi: azimuth around X axis, -45° to +45° (right=+ when looking along +X)
+            % In body frame (Z-up):
+            %   dX = cos(theta)
+            %   dY = sin(theta) * sin(phi)
+            %   dZ = -sin(theta) * cos(phi)  (negative = downward)
             %
-            % In new coords: theta'=30°~150° (polar angle from Z'), phi'=-45°~45° (azimuth from X')
-            % No poles within view (0° and 180° are outside the range)
+            % At theta=0°: all phi map to [1,0,0] = forward (no upward tilt)
+            % At theta=90°: dX=0, dZ=-cos(phi) < 0 (always downward, no pole convergence)
+            % At theta=120°: dX=-0.5, dZ=-0.866*cos(phi) (rear-down, no pole)
             
-            theta_prime = deg2rad(linspace(30, 150, obj.vRes));
-            phi_prime = deg2rad(linspace(-45, 45, obj.hRes));
-            [Theta_mesh, Phi_mesh] = meshgrid(theta_prime, phi_prime);
+            theta_angles = deg2rad(linspace(0, obj.vFOV, obj.vRes));
+            phi_angles = deg2rad(linspace(-obj.hFOV/2, obj.hFOV/2, obj.hRes));
+            [Theta_mesh, Phi_mesh] = meshgrid(theta_angles, phi_angles);
             
-            % Directions in new coordinate system (unit sphere)
-            dXp = sin(Theta_mesh) .* cos(Phi_mesh);
-            dYp = sin(Theta_mesh) .* sin(Phi_mesh);
-            dZp = cos(Theta_mesh);
-            
-            % Rotate to body frame: [dX_body; dY_body; dZ_body] = R * [dXp; dYp; dZp]
-            dX_body = 0.5 * dXp + 0.866 * dZp;
-            dY_body = dYp;
-            dZ_body = -0.866 * dXp + 0.5 * dZp;
+            % Direction in body frame (before yaw rotation)
+            dX_body = cos(Theta_mesh);
+            dY_body = sin(Theta_mesh) .* sin(Phi_mesh);
+            dZ_body = -sin(Theta_mesh) .* cos(Phi_mesh);
             
             % Rotate by yaw around Z axis
             dX = dX_body .* cos(uavYaw) - dY_body .* sin(uavYaw);
@@ -149,17 +136,45 @@ classdef Autoland_lidar < handle
             end
             
             % 3. Tree trunk and canopy intersection
-            if ~isempty(treeLocations)
-                tx = treeLocations(:,1); ty = treeLocations(:,2);
-                tr = treeLocations(:,3); th = treeLocations(:,4); tb = treeLocations(:,5); cr = treeLocations(:,6);
+            if ~isempty(obj.treeLocations)
+                % get tree id
+                % treeid = treeLocations(:,1);
+                
+                % Tree locations
+                tx = obj.treeLocations(:,2);
+                ty = obj.treeLocations(:,3);
+                
+                % Tree trunk and canopy parameters
+                tr = obj.treeLocations(:,4);
+                th = obj.treeLocations(:,5);
+                
+                % Tree trunk bottom height
+                tb = obj.treeLocations(:,6);
+                
+                % Tree canopy radius
+                cr = obj.treeLocations(:,7);
+                
+                % Get number of trees
                 numTrees = length(tx);
+                
                 for i = 1:numTrees
+                    % disp(['Calculate tree id: ', num2str(treeid(i))]);
+                    
                     % Trunk cylinders
-                    dx_r = dirs(:,1); dy_r = dirs(:,2);
-                    ox = uav_pos(1) - tx(i); oy = uav_pos(2) - ty(i);
-                    A = dx_r.^2 + dy_r.^2; B = 2 .* (ox.*dx_r + oy.*dy_r); C_cyl = ox.^2 + oy.^2 - tr(i)^2;
+                    dx_r = dirs(:,1);
+                    dy_r = dirs(:,2);
+
+                    % Location of the drone, this is the lidar center
+                    ox = uav_pos(1) - tx(i);
+                    oy = uav_pos(2) - ty(i);
+                    
+
+                    A = dx_r.^2 + dy_r.^2;
+                    B = 2 .* (ox.*dx_r + oy.*dy_r);
+                    C_cyl = ox.^2 + oy.^2 - tr(i)^2;
                     delta_cyl = B.^2 - 4.*A.*C_cyl;
                     valid_cyl = delta_cyl >= 0;
+                    
                     if any(valid_cyl)
                         t_cyl = (-B(valid_cyl) - sqrt(delta_cyl(valid_cyl))) ./ (2.*A(valid_cyl));
                         hit_z = uav_pos(3) + t_cyl .* dirs(valid_cyl, 3);
@@ -168,6 +183,7 @@ classdef Autoland_lidar < handle
                         final_cyl = idx(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
                         min_ranges(final_cyl) = t_cyl(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
                     end
+                    
                     % Canopy spheres
                     cz = tb(i) + th(i);
                     vx = uav_pos(1) - tx(i); vy = uav_pos(2) - ty(i); vz = uav_pos(3) - cz;
@@ -181,6 +197,8 @@ classdef Autoland_lidar < handle
                         final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
                         min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
                     end
+
+                    % Check branches
                 end
             end
             
@@ -206,29 +224,7 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-            
-            % 5. Stump intersection (cylinders)
-            if ~isempty(obj.stumpPos)
-                sx = obj.stumpPos(:,1); sy = obj.stumpPos(:,2);
-                sr = obj.stumpPos(:,3); sh = obj.stumpPos(:,4); sb = obj.stumpPos(:,5);
-                numStumps = length(sx);
-                for i = 1:numStumps
-                    dx_r = dirs(:,1); dy_r = dirs(:,2);
-                    ox = uav_pos(1) - sx(i); oy = uav_pos(2) - sy(i);
-                    A = dx_r.^2 + dy_r.^2; B = 2 .* (ox.*dx_r + oy.*dy_r); C_cyl = ox.^2 + oy.^2 - sr(i)^2;
-                    delta_cyl = B.^2 - 4.*A.*C_cyl;
-                    valid_cyl = delta_cyl >= 0;
-                    if any(valid_cyl)
-                        t_cyl = (-B(valid_cyl) - sqrt(delta_cyl(valid_cyl))) ./ (2.*A(valid_cyl));
-                        hit_z = uav_pos(3) + t_cyl .* dirs(valid_cyl, 3);
-                        z_valid = (hit_z >= sb(i)) & (hit_z <= sb(i) + sh(i));
-                        idx = find(valid_cyl);
-                        final_cyl = idx(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
-                        min_ranges(final_cyl) = t_cyl(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
-                    end
-                end
-            end
-            
+                        
             % 6. Bush intersection (spheres)
             if ~isempty(obj.bushLocations)
                 bx = obj.bushLocations(:,1); by = obj.bushLocations(:,2);
@@ -251,6 +247,8 @@ classdef Autoland_lidar < handle
                 end
             end
             
+            % 重新计算：min_ranges 被设为边界距离的点才是真正的边界点
+            boundary_hits = abs(min_ranges - t_boundary) < 1e-3;
             valid_hits = (min_ranges < obj.beamRange) & (~boundary_hits);
             if any(valid_hits)
                 fullCloud = uav_pos + dirs(valid_hits,:) .* min_ranges(valid_hits);

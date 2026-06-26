@@ -1,19 +1,31 @@
 clear; clc; close all; % Clear workspace
 
-RECORD_VIDEO = false;
 
-% ========== Parameter Settings ==========
-entryAngleDeg = rand * 360;  % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
+%% Parameter Settings
+% entryAngleDeg = rand * 360;  % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
+entryAngleDeg = 60;  % Entry angle (0=+X, 90=+Y, 180=-X, 270=-Y)
 entryAltitude = 12;          % Entry altitude (m)
 entryDistFromEdge = 0.2;     % Distance outside map edge (m)
 maxSlopeDeg = 5;             % Max slope for landing (deg)
 extraLandingClearance = 1.2; % Extra clearance (m), landing diameter = droneDiameter + extraLandingClearance
-% =========================================
 
-mapEnvironment = Autoland_map();
-mapEnvironment.generateEnvironment();
-fieldSize = mapEnvironment.fieldSize;
+% Drone Settings
+droneDiameter = 2;           % Drone diameter (m)
 
+% Simulation Settings
+totalTime = 120;            % Total simulation time (s)
+simDt = 0.05;                % Simulation time step (s)
+
+% Video recorder settings
+RECORD_VIDEO = false;
+
+
+%% Initialize environment map
+map = Autoland_map();
+map.generateEnvironment();
+fieldSize = map.fieldSize;
+
+%% Initialize drone entry position
 entryAngleRad = deg2rad(entryAngleDeg);
 entryDir = [cos(entryAngleRad); sin(entryAngleRad)];
 center = [fieldSize/2; fieldSize/2];
@@ -42,26 +54,28 @@ end
 startPos = [startPosXY; entryAltitude];
 initialYaw = entryAngleRad;
 
-uav = Autoland_drone(startPos, initialYaw);
-droneDiameter = uav.armLength * 2 + uav.propRadius * 2;
-disp(['Drone diameter: ' num2str(droneDiameter) 'm']);
+
+%% Initialize mapper
 mapper = Autoland_mapper(0.2, droneDiameter, extraLandingClearance);
 videoRecorder = Video_recorder('Autoland_Drone.mp4');
-totalTime = 120;
-steps = totalTime / uav.dt;
+steps = totalTime / simDt;
 
+%% Initialize LiDAR sensor
 % LiDAR: 192x144 resolution, pitch 0~(-120)deg, roll -45~(-135)deg
-lidarSensor = Autoland_lidar(90, 120, 25, 129, 144, 2);
-lidarSensor.setTerrain(mapEnvironment.X, mapEnvironment.Y, mapEnvironment.Z_ground);
-lidarSensor.setObstacles(mapEnvironment.rockLocations, mapEnvironment.stumpPos, mapEnvironment.bushLocations);
-disp(['LiDAR initialized: ' num2str(lidarSensor.hRes) 'x' num2str(lidarSensor.vRes) ' resolution, range=' num2str(lidarSensor.beamRange) 'm']);
+lidar = Autoland_lidar(90, 120, 25, 129, 144, 2, map);
 
+disp(['LiDAR initialized: ' num2str(lidar.hRes) 'x' num2str(lidar.vRes) ' resolution, range=' num2str(lidar.beamRange) 'm']);
+
+%% Initialize drone
+uav = Autoland_drone(startPos, initialYaw, droneDiameter, simDt);
+
+% fix axis
 axis equal; axis vis3d;
 
 landingSites = [];
 
 for t = 1:steps
-    currentScanPoints = lidarSensor.getScanCloud(uav.Position, uav.Yaw, mapEnvironment.treeLocations);
+    currentScanPoints = lidar.scan(uav.Position, uav.Yaw);
     mapper.updateMap(currentScanPoints);
 
     % Analyze terrain more frequently
@@ -69,12 +83,12 @@ for t = 1:steps
         landingSites = mapper.analyzeTerrain(maxSlopeDeg);
     end
 
-    uav.update(currentScanPoints, lidarSensor.F_terrain, mapper.AllLandingSites);
+    uav.update(currentScanPoints, lidar.F_terrain, mapper.AllLandingSites);
 
     if mod(t, 2) == 0
         mapper.renderMap();
         uav.render(currentScanPoints);
-        % lidarSensor.updateBeams(uav.Position, uav.Yaw);
+        % lidar.updateBeams(uav.Position, uav.Yaw);
         drawnow limitrate;
         if RECORD_VIDEO
             videoRecorder.captureFrame();

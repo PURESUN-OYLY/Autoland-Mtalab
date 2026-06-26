@@ -9,8 +9,7 @@ classdef Autoland_map < handle
         Fterrain;              % Terrain height interpolation function
 
         % Obstacle coordinates storage matrix
-        treeLocations = [];    % [tx, ty, trunkR, trunkH, h_base, canopyR, branchNum]
-        stumpPos = [];         % Tree stump [sx, sy, r_stump, h_stump, h_base]
+        treeLocations = [];    % [treeid, tx, ty, trunkR, trunkH, h_base, canopyR]
         rockLocations = [];    % Rock [rx, ry, r_min, r_max, h_rock, h_base]
         bushLocations = [];    % Bush grass [bx, by, r_bush, h_bush, h_base]
 
@@ -102,11 +101,15 @@ classdef Autoland_map < handle
                     % Tree trunk parameters
                     trunkR = 0.4 + rand() * 0.4;
                     trunkH = 4 + rand() * 4;
-                    branchNum = randi([4,7]); % Branch number per tree
+
+                    % Canopy radius of the tree
                     canopyR = 1.8 + rand() * 1.2;
 
+                    % Branch number per tree
+                    branchNum = randi([4,7]);
+
                     % Store tree data
-                    obj.treeLocations = [obj.treeLocations; tx, ty, trunkR, trunkH, h_base, canopyR, branchNum];
+                    obj.treeLocations = [obj.treeLocations; i, tx, ty, trunkR, trunkH, h_base, canopyR];
 
                     % Draw tree trunk cylinder
                     [cX,cY,cZ] = cylinder(trunkR,16);
@@ -115,14 +118,16 @@ classdef Autoland_map < handle
 
                     % Draw tree branches
                     for b = 1:branchNum
-                        branchLen = 1.2 + rand()*1.0;
-                        branchR = trunkR * (0.2 + rand()*0.3);
-                        branchAngleX = rand()*2*pi;
-                        branchAngleZ = pi/4 + rand()*pi/3;
-                        branchBaseZ = h_base + trunkH * (0.4 + rand()*0.5);
+                        % Tree branch parameters
+                        branchLen = 1.2 + rand()*1.0;           % Branch length
+                        branchR = trunkR * (0.2 + rand()*0.3);  % Branch radius
+                        branchAngleX = rand()*2*pi;             % Branch angle X, around trunk direction
+                        branchAngleZ = pi/4 + rand()*pi/3;      % Branch angle Z, diagonally upward
+                        branchBaseZ = h_base + trunkH * (0.4 + rand()*0.5); % Branch base height
 
                         % Transform branch coordinates to tree trunk
-                        [brX,brY,brZ] = cylinder(branchR,8);
+                        [brX, brY, brZ] = cylinder(branchR, 8);
+
                         brZ = brZ * branchLen;
                         rotMatX = [cos(branchAngleX), -sin(branchAngleX),0;
                             sin(branchAngleX), cos(branchAngleX),0;
@@ -178,7 +183,7 @@ classdef Autoland_map < handle
             % slopeValidRatio = slopeValidPixel / totalPixel;
             % fprintf('Empty land ratio：%.2f %% (required≥50%%)\n', emptyRatio*100);
             % fprintf('Slope valid<5° ratio：%.2f %% (required≥10%%)\n', slopeValidRatio*100);
-            
+
             % Draw valid slope area yellow markers
             % scatter3(obj.X(obj.validSlopeMask), obj.Y(obj.validSlopeMask), ...
             %     obj.Z_ground(obj.validSlopeMask)+0.05, 80, 'y', 'filled', ...
