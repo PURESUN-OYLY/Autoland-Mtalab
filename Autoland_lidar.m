@@ -36,6 +36,14 @@ classdef Autoland_lidar < handle
                 obj.bushLocations = map.bushLocations;
             end
         end
+        
+        function setTerrain(obj, X, Y, Z)
+            obj.terr_X = X; obj.terr_Y = Y; obj.terr_Z = Z;
+            obj.F_terrain = griddedInterpolant(X', Y', Z', 'linear', 'none');
+            obj.has_terrain = true;
+            obj.mapMinX = min(X(:)); obj.mapMaxX = max(X(:));
+            obj.mapMinY = min(Y(:)); obj.mapMaxY = max(Y(:));
+        end
 
         function scanPoints = scan(obj, uavPosition, uavYaw)
 
