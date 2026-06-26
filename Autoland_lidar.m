@@ -16,6 +16,7 @@ classdef Autoland_lidar < handle
         rockLocations = []
         bushLocations = []
         treeLocations = []
+        leafClusters = []
 
         % Map boundary
         mapMinX = 0; mapMaxX = 30;
@@ -34,6 +35,7 @@ classdef Autoland_lidar < handle
                 obj.treeLocations = map.treeLocations;
                 obj.rockLocations = map.rockLocations;
                 obj.bushLocations = map.bushLocations;
+                obj.leafClusters = map.leafClusters;
             end
 
             % generate terrain interpolant
@@ -50,6 +52,10 @@ classdef Autoland_lidar < handle
             obj.mapMinY = min(Y(:)); obj.mapMaxY = max(Y(:));
         end
 
+        function setLeafClusters(obj, leafClusters)
+            obj.leafClusters = leafClusters;
+        end
+        
         function scanPoints = scan(obj, uavPosition, uavYaw)
 
             % Map boundary check
@@ -212,6 +218,27 @@ classdef Autoland_lidar < handle
                     end
 
                     % Check branches
+                    % Leaf cluster detection is done outside the tree loop
+                end
+            end
+            
+            % 3b. Leaf cluster intersection (spheres from branch ends)
+            if ~isempty(obj.leafClusters)
+                lx = obj.leafClusters(:,1); ly = obj.leafClusters(:,2);
+                lz = obj.leafClusters(:,3); lr = obj.leafClusters(:,4);
+                numLeaves = length(lx);
+                for i = 1:numLeaves
+                    vx = uav_pos(1) - lx(i); vy = uav_pos(2) - ly(i); vz = uav_pos(3) - lz(i);
+                    B_sph = 2 .* (vx.*dirs(:,1) + vy.*dirs(:,2) + vz.*dirs(:,3));
+                    C_sph = vx.^2 + vy.^2 + vz.^2 - lr(i)^2;
+                    delta_sph = B_sph.^2 - 4.*C_sph;
+                    valid_sph = delta_sph >= 0;
+                    if any(valid_sph)
+                        t_sph = (-B_sph(valid_sph) - sqrt(delta_sph(valid_sph))) ./ 2;
+                        idx_sph = find(valid_sph);
+                        final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                        min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                    end
                 end
             end
             

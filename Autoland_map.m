@@ -9,9 +9,10 @@ classdef Autoland_map < handle
         Fterrain;              % Terrain height interpolation function
 
         % Obstacle coordinates storage matrix
-        treeLocations = [];    % [treeid, tx, ty, trunkR, trunkH, h_base, canopyR]
+        treeLocations = [];    % [tx, ty, trunkR, trunkH, h_base, canopyR, branchNum]
         rockLocations = [];    % Rock [rx, ry, r_min, r_max, h_rock, h_base]
         bushLocations = [];    % Bush grass [bx, by, r_bush, h_bush, h_base]
+        leafClusters = [];     % Leaf clusters [cx, cy, cz, radius] from branch ends
 
         % Render boolean switches
         renderTerrain    = true;
@@ -152,11 +153,17 @@ classdef Autoland_map < handle
 
                         % Draw leaf cluster at branch end
                         leafR = canopyR * (0.4 + rand()*0.6);
+                        leafCx = tx + brX_rot(end,end);
+                        leafCy = ty + brY_rot(end,end);
+                        leafCz = branchBaseZ + brZ_rot(end,end);
                         [sx,sy,sz] = sphere(12);
-                        surf(sx*leafR + tx + brX_rot(end,end), ...
-                            sy*leafR + ty + brY_rot(end,end), ...
-                            sz*leafR + branchBaseZ + brZ_rot(end,end), ...
+                        surf(sx*leafR + leafCx, ...
+                            sy*leafR + leafCy, ...
+                            sz*leafR + leafCz, ...
                             'FaceColor', [0.08,0.45,0.12], 'EdgeColor','none','FaceAlpha',0.6);
+                        
+                        % Store leaf cluster for LiDAR detection
+                        obj.leafClusters = [obj.leafClusters; leafCx, leafCy, leafCz, leafR];
                     end
 
                     % Draw tree canopy top
