@@ -64,25 +64,90 @@ videoRecorder = Video_recorder('Autoland_Drone.mp4', entryAngleDeg);
 steps = totalTime / simDt;
 
 %% Initialize LiDAR sensor
-% LiDAR: 192x144 resolution, pitch 0~(-120)deg, roll -45~(-135)deg
-lidar = Autoland_lidar(90, 120, 25, 129, 144, 2, map);
+% LiDAR: 96x72 resolution, pitch 0~(-120)deg, roll -45~(-135)deg
+lidar = Autoland_lidar(90, 120, 25, 96, 72, 2, map);
 
 disp(['LiDAR initialized: ' num2str(lidar.hRes) 'x' num2str(lidar.vRes) ' resolution, range=' num2str(lidar.beamRange) 'm']);
 
 %% Initialize drone
 uav = Autoland_drone(startPos, initialYaw, droneDiameter, simDt);
 
+%% Create visibility control buttons
+fig = gcf;
+fig.Position = [100 100 1100 720];
+
+btnW = 90; btnH = 22; gap = 25; startY = 640;
+
+function togMapvis(map)
+    if map.visible
+        set(map.h_terrain, 'Visible', 0);
+        set(map.h_trees, 'Visible', 0);
+        set(map.h_rocks, 'Visible', 0);
+        set(map.h_bushes, 'Visible', 0);
+    else
+        set(map.h_terrain, 'Visible', 1);
+        set(map.h_trees, 'Visible', 1);
+        set(map.h_rocks, 'Visible', 1);
+        set(map.h_bushes, 'Visible', 1);
+    end
+    map.visible = ~map.visible;
+end
+
+% Map elements
+uicontrol('Style', 'togglebutton', 'String', 'Map', ...
+    'Position', [10 startY btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) togMapvis(map));
+
+% Mapper elements
+uicontrol('Style', 'togglebutton', 'String', 'LiDAR pts', ...
+    'Position', [10 startY-gap*5 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(mapper.h_globalMapPlot, 'Visible', getVis(src)));
+
+uicontrol('Style', 'togglebutton', 'String', 'Curr Sites', ...
+    'Position', [10 startY-gap*6 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(mapper.h_landingSites, 'Visible', getVis(src)));
+
+uicontrol('Style', 'togglebutton', 'String', 'Hist Sites', ...
+    'Position', [10 startY-gap*7 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(mapper.h_allLandingSites, 'Visible', getVis(src)));
+
+uicontrol('Style', 'togglebutton', 'String', 'Patches', ...
+    'Position', [10 startY-gap*8 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) toggleVisible(src, mapper.h_landingPatches));
+
+% Drone elements
+droneHandles = [uav.h_body; uav.h_radar; uav.h_arm1; uav.h_arm2; ...
+    uav.h_prop1; uav.h_prop2; uav.h_prop3; uav.h_prop4; ...
+    uav.h_leg1; uav.h_leg2; uav.h_leg3; uav.h_leg4];
+
+uicontrol('Style', 'togglebutton', 'String', 'Drone', ...
+    'Position', [10 startY-gap*10 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) toggleVisible(src, droneHandles));
+
+uicontrol('Style', 'togglebutton', 'String', 'Path', ...
+    'Position', [10 startY-gap*11 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(uav.h_path, 'Visible', getVis(src)));
+
+uicontrol('Style', 'togglebutton', 'String', 'Scan pts', ...
+    'Position', [10 startY-gap*12 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(uav.h_cloud_dots, 'Visible', getVis(src)));
+
+uicontrol('Style', 'togglebutton', 'String', 'Target', ...
+    'Position', [10 startY-gap*13 btnW btnH], 'Value', 1, ...
+    'Callback', @(src,~) set(uav.h_target_marker, 'Visible', getVis(src)));
+
+
 landingSites = [];
 
 for t = 1:steps
     currentScanPoints = lidar.scan(uav.Position, uav.Yaw);
     mapper.updateMap(currentScanPoints);
-    
+
     % Analyze terrain more frequently
     if mod(t, 5) == 0
         landingSites = mapper.analyzeTerrain(maxSlopeDeg);
     end
-    
+
     uav.update(currentScanPoints, lidar.F_terrain, mapper.AllLandingSites);
 
     if mod(t, 2) == 0
@@ -107,4 +172,22 @@ end
 
 if RECORD_VIDEO
     videoRecorder.closeVideo();
+end
+
+disp(' ');
+
+%% Local functions
+function vis = getVis(src)
+if src.Value == 1, vis = 'on'; else, vis = 'off'; end
+end
+
+function toggleVisible(src, hArray)
+if ~isvalid(src), return; end
+vis = 'on'; if src.Value == 0, vis = 'off'; end
+if isempty(hArray), return; end
+for i = 1:length(hArray)
+    if isvalid(hArray(i))
+        set(hArray(i), 'Visible', vis);
+    end
+end
 end

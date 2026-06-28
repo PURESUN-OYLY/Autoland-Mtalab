@@ -1,34 +1,23 @@
 classdef Autoland_map < handle
     properties
         % Map parameters
-        mapSize = 30;        % Map size in meters
-        gridRes = 0.5;         % Grid resolution in meters
-        X, Y, Z_ground;        % Terrain grid
-        validSlopeMask;        % Valid slope area mask
-        emptyLandMask;         % Empty land mask (no obstacles)
-        Fterrain;              % Terrain height interpolation function
-
+        mapSize = 30;       % Map size in meters
+        gridRes = 0.5;      % Grid resolution in meters
+        X, Y, Z_ground;     % Terrain grid
+        Fterrain;           % Terrain height interpolation function
+        
         % Obstacle coordinates storage matrix
-        treeLocations = [];    % [tx, ty, trunkR, trunkH, h_base, canopyR, branchNum]
-        rockLocations = [];    % Rock [rx, ry, r_min, r_max, h_rock, h_base]
-        bushLocations = [];    % Bush grass [bx, by, r_bush, h_bush, h_base]
-        leafClusters = [];     % Leaf clusters [cx, cy, cz, radius] from branch ends
-
-        % Render boolean switches
-        renderTerrain    = true;
-        renderTree       = true;
-        renderBranch     = true;
-        renderRock       = true;
-        renderBushGrass  = true;
-        renderMarkers    = true;
-
-
-        %% Render handles
+        treeLocations = []; % [tx, ty, trunkR, trunkH, h_base, canopyR, branchNum]
+        rockLocations = []; % Rock [rx, ry, r_min, r_max, h_rock, h_base]
+        bushLocations = []; % Bush grass [bx, by, r_bush, h_bush, h_base]
+        leafClusters = [];  % Leaf clusters [cx, cy, cz, radius] from branch ends
+        
+        %% Render handles, for visibility control
+        visible = true;     % Map visibility flag
         h_terrain
         h_trees = []
         h_rocks = []
         h_bushes = []
-        h_markers = []
     end
 
     methods
@@ -67,15 +56,6 @@ classdef Autoland_map < handle
             % Normalize terrain height to make the lowest point at 0
             obj.Z_ground = obj.Z_ground - min(obj.Z_ground, [], 'all');
 
-            % Calculate slope mask (valid slope area < 5°)
-            [dzdx, dzdy] = gradient(obj.Z_ground, obj.gridRes);
-            slopeRad = atan(sqrt(dzdx.^2 + dzdy.^2));
-            slopeDeg = rad2deg(slopeRad);
-            obj.validSlopeMask = slopeDeg < 5;
-
-            % Initialize empty land mask (no obstacles)
-            obj.emptyLandMask = true(size(obj.validSlopeMask));
-
             % Create terrain height interpolation function
             obj.Fterrain = scatteredInterpolant(obj.X(:), obj.Y(:), obj.Z_ground(:), 'linear', 'nearest');
 
@@ -90,91 +70,100 @@ classdef Autoland_map < handle
 
             % Render basic terrain grass
             disp('Render basic terrain grass');
-            if obj.renderTerrain
-                obj.h_terrain = surf(obj.X, obj.Y, obj.Z_ground, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
-                colormap(summer); light; lighting gouraud;
-            end
+            obj.h_terrain = surf(obj.X, obj.Y, obj.Z_ground, 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+
+            % Set colormap to summer for better visibility
+            colormap(summer);
+            light;
+            lighting gouraud;
 
             % Render trees
             disp('Render trees');
-            if obj.renderTree
-                numTrees = randi([8,12]); % Random 8-12 trees
-                for i = 1:numTrees
-                    % Make sure trees are not too close to the edges
-                    tx = 5 + rand() * 20;
-                    ty = 5 + rand() * 20;
-                    h_base = obj.Fterrain(tx, ty); % Tree base height
+            numTrees = randi([8,12]); % Random 8-12 trees
+            for i = 1:numTrees
+                % Make sure trees are not too close to the edges
+                tx = 5 + rand() * 20;
+                ty = 5 + rand() * 20;
+                h_base = obj.Fterrain(tx, ty); % Tree base height
 
-                    % Tree trunk parameters
-                    trunkR = 0.4 + rand() * 0.4;
-                    trunkH = 4 + rand() * 4;
+                % Tree trunk parameters
+                trunkR = 0.4 + rand() * 0.4;
+                trunkH = 4 + rand() * 4;
 
-                    % Canopy radius of the tree
-                    canopyR = 1.8 + rand() * 1.2;
+                % Canopy radius of the tree
+                canopyR = 1.8 + rand() * 1.2;
 
-                    % Branch number per tree
-                    branchNum = randi([4,7]);
+                % Branch number per tree
+                branchNum = randi([4,7]);
 
-                    % Store tree data
-                    obj.treeLocations = [obj.treeLocations; i, tx, ty, trunkR, trunkH, h_base, canopyR];
+                % Store tree data
+                obj.treeLocations = [obj.treeLocations; i, tx, ty, trunkR, trunkH, h_base, canopyR];
 
-                    % Draw tree trunk cylinder
-                    [cX,cY,cZ] = cylinder(trunkR,16);
-                    surf(cX+tx, cY+ty, cZ*trunkH + h_base, ...
-                        'FaceColor', [0.42,0.24,0.06], 'EdgeColor','none');
+                % Draw tree trunk cylinder
+                [cX,cY,cZ] = cylinder(trunkR,16);
+                trunk = surf(cX+tx, cY+ty, cZ*trunkH + h_base, ...
+                    'FaceColor', [0.42,0.24,0.06], 'EdgeColor','none');
 
-                    % Draw tree branches
-                    for b = 1:branchNum
-                        % Tree branch parameters
-                        branchLen = 1.2 + rand()*1.0;           % Branch length
-                        branchR = trunkR * (0.2 + rand()*0.3);  % Branch radius
-                        branchAngleX = rand()*2*pi;             % Branch angle X, around trunk direction
-                        branchAngleZ = pi/4 + rand()*pi/3;      % Branch angle Z, diagonally upward
-                        branchBaseZ = h_base + trunkH * (0.4 + rand()*0.5); % Branch base height
+                % save trunk handle for visible control
+                obj.h_trees = [obj.h_trees; trunk];
 
-                        % Transform branch coordinates to tree trunk
-                        [brX, brY, brZ] = cylinder(branchR, 8);
+                % Draw tree canopy top
+                [sx,sy,sz] = sphere(20);
+                canopy = surf(sx*canopyR + tx, sy*canopyR + ty, sz*canopyR + h_base + trunkH, ...
+                    'FaceColor', [0.12,0.52,0.15], 'EdgeColor','none','FaceAlpha',0.5);
 
-                        brZ = brZ * branchLen;
-                        rotMatX = [cos(branchAngleX), -sin(branchAngleX),0;
-                            sin(branchAngleX), cos(branchAngleX),0;
-                            0,0,1];
-                        rotMatZ = [1,0,0;
-                            0,cos(branchAngleZ),-sin(branchAngleZ);
-                            0,sin(branchAngleZ),cos(branchAngleZ)];
-                        rotAll = rotMatX * rotMatZ;
-                        pts = rotAll * [brX(:)'; brY(:)'; brZ(:)'];
-                        brX_rot = reshape(pts(1,:), size(brX));
-                        brY_rot = reshape(pts(2,:), size(brY));
-                        brZ_rot = reshape(pts(3,:), size(brZ));
+                % save canopy handle for visible control
+                obj.h_trees = [obj.h_trees; canopy];
 
-                        surf(brX_rot + tx, brY_rot + ty, brZ_rot + branchBaseZ, ...
-                            'FaceColor', [0.38,0.21,0.04], 'EdgeColor','none');
+                % Draw tree branches
+                for b = 1:branchNum
+                    % Tree branch parameters
+                    branchLen = 1.2 + rand()*1.0;           % Branch length
+                    branchR = trunkR * (0.2 + rand()*0.3);  % Branch radius
+                    branchAngleX = rand()*2*pi;             % Branch angle X, around trunk direction
+                    branchAngleZ = pi/4 + rand()*pi/3;      % Branch angle Z, diagonally upward
+                    branchBaseZ = h_base + trunkH * (0.4 + rand()*0.5); % Branch base height
 
-                        % Draw leaf cluster at branch end
-                        leafR = canopyR * (0.4 + rand()*0.6);
-                        leafCx = tx + brX_rot(end,end);
-                        leafCy = ty + brY_rot(end,end);
-                        leafCz = branchBaseZ + brZ_rot(end,end);
-                        [sx,sy,sz] = sphere(12);
-                        surf(sx*leafR + leafCx, ...
-                            sy*leafR + leafCy, ...
-                            sz*leafR + leafCz, ...
-                            'FaceColor', [0.08,0.45,0.12], 'EdgeColor','none','FaceAlpha',0.6);
-                        
-                        % Store leaf cluster for LiDAR detection
-                        obj.leafClusters = [obj.leafClusters; leafCx, leafCy, leafCz, leafR];
-                    end
+                    % Transform branch coordinates to tree trunk
+                    [brX, brY, brZ] = cylinder(branchR, 8);
 
-                    % Draw tree canopy top
-                    [sx,sy,sz] = sphere(20);
-                    surf(sx*canopyR + tx, sy*canopyR + ty, sz*canopyR + h_base + trunkH, ...
-                        'FaceColor', [0.12,0.52,0.15], 'EdgeColor','none','FaceAlpha',0.5);
+                    brZ = brZ * branchLen;
+                    rotMatX = [cos(branchAngleX), -sin(branchAngleX),0;
+                        sin(branchAngleX), cos(branchAngleX),0;
+                        0,0,1];
+                    rotMatZ = [1,0,0;
+                        0,cos(branchAngleZ),-sin(branchAngleZ);
+                        0,sin(branchAngleZ),cos(branchAngleZ)];
+                    rotAll = rotMatX * rotMatZ;
+                    pts = rotAll * [brX(:)'; brY(:)'; brZ(:)'];
+                    brX_rot = reshape(pts(1,:), size(brX));
+                    brY_rot = reshape(pts(2,:), size(brY));
+                    brZ_rot = reshape(pts(3,:), size(brZ));
 
-                    % Tree area mask
-                    treeDist = sqrt((obj.X - tx).^2 + (obj.Y - ty).^2);
-                    obj.validSlopeMask(treeDist < (trunkR + 2.0)) = 0;
-                    obj.emptyLandMask(treeDist < (trunkR + 2.0)) = 0;
+                    branch = surf(brX_rot + tx, brY_rot + ty, brZ_rot + branchBaseZ, ...
+                        'FaceColor', [0.38,0.21,0.04], 'EdgeColor','none');
+
+                    % save branch handle for visible control
+                    obj.h_trees = [obj.h_trees; branch];
+
+                    % Draw leaf cluster at branch end
+                    leafR = canopyR * (0.4 + rand()*0.6);
+                    leafCx = tx + brX_rot(end,end);
+                    leafCy = ty + brY_rot(end,end);
+                    leafCz = branchBaseZ + brZ_rot(end,end);
+                    [sx,sy,sz] = sphere(12);
+
+                    % Draw leaf cluster at branch end
+                    leaf = surf(sx*leafR + leafCx, ...
+                        sy*leafR + leafCy, ...
+                        sz*leafR + leafCz, ...
+                        'FaceColor', [0.08,0.45,0.12], 'EdgeColor','none','FaceAlpha',0.6);
+
+                    % save leaf handle for visible control
+                    obj.h_trees = [obj.h_trees; leaf];
+
+                    % Store leaf cluster for LiDAR detection
+                    obj.leafClusters = [obj.leafClusters; leafCx, leafCy, leafCz, leafR];
                 end
             end
 
@@ -187,25 +176,9 @@ classdef Autoland_map < handle
             disp('Render fallen dead trunks with branches');
             obj.build_fallen_trunk(10, 15, 20);
 
-            % Check terrain area constraints
-            % disp('==== Check terrain area constraints');
-            % totalPixel = numel(obj.emptyLandMask);
-            % emptyPixel = sum(obj.emptyLandMask(:));
-            % slopeValidPixel = sum(obj.validSlopeMask(:));
-            % emptyRatio = emptyPixel / totalPixel;
-            % slopeValidRatio = slopeValidPixel / totalPixel;
-            % fprintf('Empty land ratio：%.2f %% (required≥50%%)\n', emptyRatio*100);
-            % fprintf('Slope valid<5° ratio：%.2f %% (required≥10%%)\n', slopeValidRatio*100);
-
-            % Draw valid slope area yellow markers
-            % scatter3(obj.X(obj.validSlopeMask), obj.Y(obj.validSlopeMask), ...
-            %     obj.Z_ground(obj.validSlopeMask)+0.05, 80, 'y', 'filled', ...
-            %     'MarkerFaceAlpha', 0.3, 'MarkerEdgeAlpha', 0.3);
-
-
             %% Step9: Draw coordinate axis and view angle
             axis equal;
-            
+
             disp('Draw coordinate axis and view angle');
             xlabel('X (m)'); ylabel('Y (m)');
             zlabel('Altitude (m)');
@@ -229,9 +202,6 @@ classdef Autoland_map < handle
         % Private methods
 
         function build_bushgrass(obj, bush_number)
-            if ~obj.renderBushGrass
-                return;
-            end
             baseRes = 10;
             for iBush = 1:bush_number
                 % The location of the bush on the ground plane
@@ -313,21 +283,10 @@ classdef Autoland_map < handle
 
                 % Store bush data for LiDAR detection
                 obj.bushLocations = [obj.bushLocations; bx, by, bushRadiusX, bushRadiusZ, groundZ];
-
-                % Mask the area around the bush
-                distField = sqrt((obj.X - bx).^2 + (obj.Y - by).^2);
-                maskRange = bushRadiusX + 0.6;
-                obj.emptyLandMask(distField < maskRange) = 0;
-                obj.validSlopeMask(distField < maskRange) = 0;
             end
         end
 
         function build_rock(obj, rock_number)
-
-            if ~obj.renderRock
-                return;
-            end
-
             for i = 1:rock_number
                 rx = rand() * 30;
                 ry = rand() * 30;
@@ -398,22 +357,12 @@ classdef Autoland_map < handle
                 rockColor = [0.45 + rand() * 0.1, 0.5 + rand() * 0.1, 0.55 + rand() * 0.1];
                 obj.surf_obj(sx_rot + rx, sy_rot + ry, sz_rot + groundZ, groundZ, rockColor, ...
                     [rand()*0.5 + 0.1, rand()*0.5 + 0.1, rand()*0.5 + 0.1], 0.9);
-
-                % Mask rocks in the empty land
-                rockDist = sqrt((obj.X - rx).^2 + (obj.Y - ry).^2);
-                maskRadius = r_max + 0.6;
-                obj.emptyLandMask(rockDist < maskRadius) = 0;
-                obj.validSlopeMask(rockDist < maskRadius) = 0;
             end
 
         end
 
         function build_fallen_trunk(obj, branchNum, posx, posy)
             disp('Generate fallen dead trunks with connected branches');
-            if ~obj.renderBranch
-                return;
-            end
-
             baseRes = 20;
             branchRes = 12;
 
