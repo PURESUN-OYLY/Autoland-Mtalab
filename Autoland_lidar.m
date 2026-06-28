@@ -244,25 +244,6 @@ classdef Autoland_lidar < handle
 
             % 4. Rock intersection (bounding spheres)
             if ~isempty(obj.rockLocations)
-                % rx = obj.rockLocations(:,1); ry = obj.rockLocations(:,2);
-                % rr_min = obj.rockLocations(:,3); rr_max = obj.rockLocations(:,4);
-                % rh = obj.rockLocations(:,5); rb = obj.rockLocations(:,6);
-                % numRocks = length(rx);
-                % for i = 1:numRocks
-                %     rockR = max([rr_min(i), rr_max(i), rh(i)]) * 0.6;
-                %     rockCx = rx(i); rockCy = ry(i); rockCz = rb(i) + rh(i)*0.5;
-                %     vx = uav_pos(1) - rockCx; vy = uav_pos(2) - rockCy; vz = uav_pos(3) - rockCz;
-                %     B_sph = 2 .* (vx.*dirs(:,1) + vy.*dirs(:,2) + vz.*dirs(:,3));
-                %     C_sph = vx.^2 + vy.^2 + vz.^2 - rockR^2;
-                %     delta_sph = B_sph.^2 - 4.*C_sph;
-                %     valid_sph = delta_sph >= 0;
-                %     if any(valid_sph)
-                %         t_sph = (-B_sph(valid_sph) - sqrt(delta_sph(valid_sph))) ./ 2;
-                %         idx_sph = find(valid_sph);
-                %         final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
-                %         min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
-                %     end
-                % end
                 numRocks = size(obj.rockLocations, 1);
 
                 for i = 1:numRocks
