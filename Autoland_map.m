@@ -200,20 +200,12 @@ classdef Autoland_map < handle
         end
 
         function visTog(obj)
-            if obj.visible
-                set(obj.h_terrain, 'Visible', 0);
-                set(obj.h_trees, 'Visible', 0);
-                set(obj.h_rocks, 'Visible', 0);
-                set(obj.h_bushes, 'Visible', 0);
-                set(obj.h_trunks, 'Visible', 0);
-            else
-                set(obj.h_terrain, 'Visible', 1);
-                set(obj.h_trees, 'Visible', 1);
-                set(obj.h_rocks, 'Visible', 1);
-                set(obj.h_bushes, 'Visible', 1);
-                set(obj.h_trunks, 'Visible', 1);
-            end
             obj.visible = ~obj.visible;
+            set(obj.h_terrain, 'Visible', obj.visible);
+            set(obj.h_trees, 'Visible', obj.visible);
+            set(obj.h_rocks, 'Visible', obj.visible);
+            set(obj.h_bushes, 'Visible', obj.visible);
+            set(obj.h_trunks, 'Visible', obj.visible);
         end
 
     end

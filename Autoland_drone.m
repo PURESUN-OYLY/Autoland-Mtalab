@@ -1,5 +1,6 @@
 classdef Autoland_drone < handle
     properties
+        %% Drone properties
         Position = [5; 5; 10];
         Velocity = [0; 0; 0];
         Yaw = 0;
@@ -10,6 +11,7 @@ classdef Autoland_drone < handle
         K_rep = 80.0;
         influence_dist = 6.0;
 
+        %% Drone state
         State = 'ENTRY';
         TargetPos = [15; 15; 10];
         TargetLandingPos = [];
@@ -17,15 +19,21 @@ classdef Autoland_drone < handle
         hasTarget = false;
         UsedSites = [];
 
+        %% Drone graphics
+        h_uav = [];
+        uavVisible = true;
         h_arm1, h_arm2, h_prop1, h_prop2, h_prop3, h_prop4
         h_path, uav_history, cx, cy, cz
-        armLength = 1.2; propRadius = 0.4;
-        h_cloud_dots
-        h_target_marker
+        armLength = 1.2;
+        propRadius = 0.4;
+        legOffset = 0.5;
         h_body, h_radar
         h_leg1, h_leg2, h_leg3, h_leg4
         bodyVerts, bodyFaces, radarCx, radarCy, radarCz
-        legOffset = 0.5;
+        
+        h_target_marker
+        h_cloud_dots
+
     end
 
     methods
@@ -43,9 +51,12 @@ classdef Autoland_drone < handle
 
         function initGraphics(obj)
             hold on;
+            % initialize arm
             obj.h_arm1 = plot3([0,0], [0,0], [0,0], 'Color', [0.2 0.2 0.2], 'LineWidth', 3);
             obj.h_arm2 = plot3([0,0], [0,0], [0,0], 'Color', [0.2 0.2 0.2], 'LineWidth', 3);
-
+            obj.h_uav = [obj.h_uav, obj.h_arm1, obj.h_arm2];
+            
+            % initialize prop
             theta_circle = linspace(0, 2*pi, 12);
             obj.cx = obj.propRadius * cos(theta_circle);
             obj.cy = obj.propRadius * sin(theta_circle);
@@ -55,12 +66,9 @@ classdef Autoland_drone < handle
             obj.h_prop2 = fill3(obj.cx, obj.cy, obj.cz, 'g', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
             obj.h_prop3 = fill3(obj.cx, obj.cy, obj.cz, 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
             obj.h_prop4 = fill3(obj.cx, obj.cy, obj.cz, 'r', 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+            obj.h_uav = [obj.h_uav, obj.h_prop1, obj.h_prop2, obj.h_prop3, obj.h_prop4];
 
-            obj.h_cloud_dots = scatter3(NaN, NaN, NaN, 4, 'r', 'filled', 'MarkerEdgeAlpha', 0.5, 'MarkerFaceAlpha', 0.5);
-            obj.h_path = plot3(obj.Position(1), obj.Position(2), obj.Position(3), 'b-', 'LineWidth', 2.5);
-            obj.h_target_marker = scatter3(NaN, NaN, NaN, 200, 'g', 'p', 'filled', ...
-                'MarkerEdgeColor', 'k', 'LineWidth', 2);
-
+            % initialize body
             bodyW = 0.6; bodyL = 0.4; bodyH = 0.25;
             obj.bodyVerts = [...
                 -bodyW/2, -bodyL/2, 0;
@@ -74,16 +82,31 @@ classdef Autoland_drone < handle
             obj.bodyFaces = [1 2 3 4; 5 6 7 8; 1 2 6 5; 2 3 7 6; 3 4 8 7; 4 1 5 8];
             obj.h_body = patch('Faces', obj.bodyFaces, 'Vertices', NaN(8,3), ...
                 'FaceColor', [0.25 0.25 0.25], 'EdgeColor', [0.1 0.1 0.1], 'LineWidth', 0.5);
+            obj.h_uav = [obj.h_uav, obj.h_body];
 
+            % initialize radar
             [obj.radarCx, obj.radarCy, obj.radarCz] = cylinder(0.08, 8);
             obj.radarCz = obj.radarCz * 0.12 + bodyH;
             obj.h_radar = surf(NaN(2,9), NaN(2,9), NaN(2,9), 'FaceColor', [0.2 0.4 0.8], ...
                 'EdgeColor', 'none', 'FaceAlpha', 0.9);
+            obj.h_uav = [obj.h_uav, obj.h_radar];
 
+            % initialize leg
             obj.h_leg1 = plot3([0,0], [0,0], [0,0], 'Color', [0.5 0.5 0.5], 'LineWidth', 2.5);
             obj.h_leg2 = plot3([0,0], [0,0], [0,0], 'Color', [0.5 0.5 0.5], 'LineWidth', 2.5);
             obj.h_leg3 = plot3([0,0], [0,0], [0,0], 'Color', [0.5 0.5 0.5], 'LineWidth', 2.5);
             obj.h_leg4 = plot3([0,0], [0,0], [0,0], 'Color', [0.5 0.5 0.5], 'LineWidth', 2.5);
+            obj.h_uav = [obj.h_uav, obj.h_leg1, obj.h_leg2, obj.h_leg3, obj.h_leg4];
+
+            obj.h_cloud_dots = scatter3(NaN, NaN, NaN, 4, 'r', 'filled', 'MarkerEdgeAlpha', 0.5, 'MarkerFaceAlpha', 0.5);
+            obj.h_path = plot3(obj.Position(1), obj.Position(2), obj.Position(3), 'b-', 'LineWidth', 2.5);
+            obj.h_target_marker = scatter3(NaN, NaN, NaN, 200, 'g', 'p', 'filled', ...
+                'MarkerEdgeColor', 'k', 'LineWidth', 2);
+        end
+
+        function togVis(obj)
+            obj.uavVisible = ~obj.uavVisible;
+            set(obj.h_uav, 'Visible', obj.uavVisible);
         end
 
         function update(obj, scanPoints, terrainF, landingSites)
