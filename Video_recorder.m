@@ -15,13 +15,13 @@ classdef Video_recorder < handle
                 start_az = -45; % Default initial horizontal azimuth
             end
             obj.current_az = start_az;
-            
+
             % Set up video writer
             obj.vidObj = VideoWriter(videoName, 'MPEG-4');
             obj.vidObj.FrameRate = 20;
             obj.vidObj.Quality = 100;
             open(obj.vidObj);
-            
+
             disp(['Camera ready to record: ' videoName]);
         end
 
@@ -30,10 +30,22 @@ classdef Video_recorder < handle
             % Update horizontal azimuth
             obj.current_az = obj.current_az + obj.az_step;
             view(obj.current_az, 35);
-            drawnow; 
-            
+            drawnow;
+
             % Capture frame and write to video
-            frame = getframe(gcf);
+            % frame = getframe(gcf);
+            % the function getframe is not stable in uifigure
+            fig = gcf;
+            if isa(fig, 'matlab.ui.Figure')
+                % uifigure 用 exportapp
+                tempFile = [tempname '.png'];
+                exportapp(fig, tempFile);
+                frame = imread(tempFile);
+                delete(tempFile);
+                frame = im2frame(frame);
+            else
+                frame = getframe(fig);
+            end
             writeVideo(obj.vidObj, frame);
         end
 

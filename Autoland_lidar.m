@@ -43,7 +43,7 @@ classdef Autoland_lidar < handle
             obj.setTerrain(map.X, map.Y, map.Z_ground);
 
         end
-        
+
         function setTerrain(obj, X, Y, Z)
             obj.terr_X = X; obj.terr_Y = Y; obj.terr_Z = Z;
             obj.F_terrain = griddedInterpolant(X', Y', Z', 'linear', 'none');
@@ -55,7 +55,7 @@ classdef Autoland_lidar < handle
         function setLeafClusters(obj, leafClusters)
             obj.leafClusters = leafClusters;
         end
-        
+
         function scanPoints = scan(obj, uavPosition, uavYaw)
 
             % Map boundary check
@@ -76,42 +76,42 @@ classdef Autoland_lidar < handle
             % At theta=0°: all phi map to [1,0,0] = forward (no upward tilt)
             % At theta=90°: dX=0, dZ=-cos(phi) < 0 (always downward, no pole convergence)
             % At theta=120°: dX=-0.5, dZ=-0.866*cos(phi) (rear-down, no pole)
-            
+
             theta_angles = deg2rad(linspace(0, obj.vFOV, obj.vRes));
             phi_angles = deg2rad(linspace(-obj.hFOV/2, obj.hFOV/2, obj.hRes));
             [Theta_mesh, Phi_mesh] = meshgrid(theta_angles, phi_angles);
-            
+
             % Direction in body frame (before yaw rotation)
             dX_body = cos(Theta_mesh);
             dY_body = sin(Theta_mesh) .* sin(Phi_mesh);
             dZ_body = -sin(Theta_mesh) .* cos(Phi_mesh);
-            
+
             % Rotate by yaw around Z axis
             dX = dX_body .* cos(uavYaw) - dY_body .* sin(uavYaw);
             dY = dX_body .* sin(uavYaw) + dY_body .* cos(uavYaw);
             dZ = dZ_body;
-            
+
             dirs = [dX(:), dY(:), dZ(:)];
             numRays = size(dirs, 1);
             min_ranges = repmat(obj.beamRange, numRays, 1);
             uav_pos = uavPosition(:)';
-            
+
             % 1. Map boundary clipping
             dx = dirs(:, 1); dy = dirs(:, 2);
             t_x = inf(numRays, 1);
             t_x(dx > 1e-9) = (obj.mapMaxX - uav_pos(1)) ./ dx(dx > 1e-9);
             t_x(dx < -1e-9) = (obj.mapMinX - uav_pos(1)) ./ dx(dx < -1e-9);
             t_x(t_x <= 0) = inf;
-            
+
             t_y = inf(numRays, 1);
             t_y(dy > 1e-9) = (obj.mapMaxY - uav_pos(2)) ./ dy(dy > 1e-9);
             t_y(dy < -1e-9) = (obj.mapMinY - uav_pos(2)) ./ dy(dy < -1e-9);
             t_y(t_y <= 0) = inf;
-            
+
             t_boundary = min(t_x, t_y);
             boundary_hits = t_boundary < min_ranges;
             min_ranges(boundary_hits) = t_boundary(boundary_hits);
-            
+
             % 2. Terrain intersection (ray-marching with 1.0m step)
             if obj.has_terrain
                 valid_g = dirs(:, 3) < -1e-4;
@@ -119,66 +119,66 @@ classdef Autoland_lidar < handle
                 if ~isempty(idx_g)
                     step_size = 1.0;
                     t_steps = 0:step_size:obj.beamRange;
-                    
+
                     ray_X = uav_pos(1) + dirs(idx_g, 1) * t_steps;
                     ray_Y = uav_pos(2) + dirs(idx_g, 2) * t_steps;
                     ray_Z = uav_pos(3) + dirs(idx_g, 3) * t_steps;
-                    
+
                     terr_Z_sampled = obj.F_terrain(ray_X, ray_Y);
                     terr_Z_sampled(isnan(terr_Z_sampled)) = -1000;
-                    
+
                     hit_mask = ray_Z < terr_Z_sampled;
                     [hit_found, hit_idx] = max(hit_mask, [], 2);
                     actual_hits = hit_found > 0 & hit_idx > 1;
                     valid_k = find(actual_hits);
                     final_idx_g = idx_g(valid_k);
                     valid_hit_idx = hit_idx(valid_k);
-                    
+
                     if ~isempty(valid_k)
                         lin_idx_curr = sub2ind(size(ray_Z), valid_k, valid_hit_idx);
                         lin_idx_prev = sub2ind(size(ray_Z), valid_k, valid_hit_idx - 1);
-                        
+
                         z_ray1 = ray_Z(lin_idx_prev); z_terr1 = terr_Z_sampled(lin_idx_prev);
                         z_ray2 = ray_Z(lin_idx_curr); z_terr2 = terr_Z_sampled(lin_idx_curr);
-                        
+
                         t1 = t_steps(valid_hit_idx - 1)';
                         t2 = t_steps(valid_hit_idx)';
-                        
+
                         diff1 = z_ray1 - z_terr1;
                         diff2 = z_ray2 - z_terr2;
                         t_exact = t1 + (t2 - t1) .* diff1 ./ (diff1 - diff2);
-                        
+
                         update_mask = t_exact < min_ranges(final_idx_g);
                         min_ranges(final_idx_g(update_mask)) = t_exact(update_mask);
                     end
                 end
             end
-            
+
             % 3. Tree trunk and canopy intersection
             if ~isempty(obj.treeLocations)
                 % get tree id
                 % treeid = treeLocations(:,1);
-                
+
                 % Tree locations
                 tx = obj.treeLocations(:,2);
                 ty = obj.treeLocations(:,3);
-                
+
                 % Tree trunk and canopy parameters
                 tr = obj.treeLocations(:,4);
                 th = obj.treeLocations(:,5);
-                
+
                 % Tree trunk bottom height
                 tb = obj.treeLocations(:,6);
-                
+
                 % Tree canopy radius
                 cr = obj.treeLocations(:,7);
-                
+
                 % Get number of trees
                 numTrees = length(tx);
-                
+
                 for i = 1:numTrees
                     % disp(['Calculate tree id: ', num2str(treeid(i))]);
-                    
+
                     % Trunk cylinders
                     dx_r = dirs(:,1);
                     dy_r = dirs(:,2);
@@ -186,14 +186,14 @@ classdef Autoland_lidar < handle
                     % Location of the drone, this is the lidar center
                     ox = uav_pos(1) - tx(i);
                     oy = uav_pos(2) - ty(i);
-                    
+
 
                     A = dx_r.^2 + dy_r.^2;
                     B = 2 .* (ox.*dx_r + oy.*dy_r);
                     C_cyl = ox.^2 + oy.^2 - tr(i)^2;
                     delta_cyl = B.^2 - 4.*A.*C_cyl;
                     valid_cyl = delta_cyl >= 0;
-                    
+
                     if any(valid_cyl)
                         t_cyl = (-B(valid_cyl) - sqrt(delta_cyl(valid_cyl))) ./ (2.*A(valid_cyl));
                         hit_z = uav_pos(3) + t_cyl .* dirs(valid_cyl, 3);
@@ -202,7 +202,7 @@ classdef Autoland_lidar < handle
                         final_cyl = idx(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
                         min_ranges(final_cyl) = t_cyl(t_cyl > 0 & t_cyl < min_ranges(idx) & z_valid);
                     end
-                    
+
                     % Canopy spheres
                     cz = tb(i) + th(i);
                     vx = uav_pos(1) - tx(i); vy = uav_pos(2) - ty(i); vz = uav_pos(3) - cz;
@@ -221,7 +221,7 @@ classdef Autoland_lidar < handle
                     % Leaf cluster detection is done outside the tree loop
                 end
             end
-            
+
             % 3b. Leaf cluster intersection (spheres from branch ends)
             if ~isempty(obj.leafClusters)
                 lx = obj.leafClusters(:,1); ly = obj.leafClusters(:,2);
@@ -241,7 +241,7 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-            
+
             % 4. Rock intersection (bounding spheres)
             if ~isempty(obj.rockLocations)
                 rx = obj.rockLocations(:,1); ry = obj.rockLocations(:,2);
@@ -264,30 +264,84 @@ classdef Autoland_lidar < handle
                     end
                 end
             end
-                        
+
             % 6. Bush intersection (spheres)
             if ~isempty(obj.bushLocations)
-                bx = obj.bushLocations(:,1); by = obj.bushLocations(:,2);
-                br = obj.bushLocations(:,3); bh = obj.bushLocations(:,4); bb = obj.bushLocations(:,5);
+                bx = obj.bushLocations(:,1);    % The position of the center of the sphere
+                by = obj.bushLocations(:,2);    % The position of the center of the sphere
+                bw = obj.bushLocations(:,3);    % The x radius of the sphere
+                bl = obj.bushLocations(:,4);    % The y radius of the sphere
+                bh = obj.bushLocations(:,5);    % The height of the sphere
+                bb = obj.bushLocations(:,6);    % The base height of the sphere
+
                 numBushes = length(bx);
                 for i = 1:numBushes
-                    bushR = br(i);
-                    bushCx = bx(i); bushCy = by(i); bushCz = bb(i) + bh(i)*0.5;
-                    vx = uav_pos(1) - bushCx; vy = uav_pos(2) - bushCy; vz = uav_pos(3) - bushCz;
-                    B_sph = 2 .* (vx.*dirs(:,1) + vy.*dirs(:,2) + vz.*dirs(:,3));
-                    C_sph = vx.^2 + vy.^2 + vz.^2 - bushR^2;
-                    delta_sph = B_sph.^2 - 4.*C_sph;
-                    valid_sph = delta_sph >= 0;
-                    if any(valid_sph)
-                        t_sph = (-B_sph(valid_sph) - sqrt(delta_sph(valid_sph))) ./ 2;
-                        idx_sph = find(valid_sph);
-                        final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
-                        min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                    % sphere radius
+                    a = bw(i);          % X radius
+                    b = bl(i);          % Y radius
+                    c = bh(i) * 0.5;    % Z radius of the sphere
+
+                    % sphere center position
+                    bushCx = bx(i);
+                    bushCy = by(i);
+                    bushCz = bb(i) + c;  % Base height + radius of the sphere
+
+                    % position offset from the center of the sphere
+                    vx = uav_pos(1) - bushCx;
+                    vy = uav_pos(2) - bushCy;
+                    vz = uav_pos(3) - bushCz;
+
+                    % transform: scale direction vector
+                    dx = dirs(:,1) / a;
+                    dy = dirs(:,2) / b;
+                    dz = dirs(:,3) / c;
+
+                    % transform: scale origin offset
+                    ox = vx / a;
+                    oy = vy / b;
+                    oz = vz / c;
+
+                    % transform: unit sphere in transformed space
+                    A_ell = dx.^2 + dy.^2 + dz.^2;
+                    B_ell = 2 * (ox*dx + oy*dy + oz*dz);
+                    C_ell = ox^2 + oy^2 + oz^2 - 1;
+
+                    delta_ell = B_ell.^2 - 4*A_ell.*C_ell;
+                    valid_ell = delta_ell >= 0;
+
+                    if any(valid_ell)
+                        sqrt_delta = sqrt(delta_ell(valid_ell));
+                        A_valid = A_ell(valid_ell);
+                        B_valid = B_ell(valid_ell);
+
+                        % two roots
+                        t1 = (-B_valid - sqrt_delta) ./ (2*A_valid);
+                        t2 = (-B_valid + sqrt_delta) ./ (2*A_valid);
+
+                        % select the valid intersection point
+                        % case 1: both positive, take the smaller (external entry)
+                        % case 2: one positive, one negative, take the positive (start in the sphere, take the exit point)
+                        t_ell = zeros(size(t1));
+
+                        both_positive = (t1 > 0) & (t2 > 0);
+                        t_ell(both_positive) = min(t1(both_positive), t2(both_positive));
+
+                        one_positive = (t1 > 0) & (t2 <= 0);
+                        t_ell(one_positive) = t1(one_positive);
+
+                        other_positive = (t1 <= 0) & (t2 > 0);
+                        t_ell(other_positive) = t2(other_positive);
+
+                        % filter: t_ell > 0 and closer than current record
+                        idx_ell = find(valid_ell);
+                        valid_t = t_ell > 0 & t_ell < min_ranges(idx_ell);
+                        final_ell = idx_ell(valid_t);
+                        min_ranges(final_ell) = t_ell(valid_t);
                     end
                 end
             end
-            
-            % 重新计算：min_ranges 被设为边界距离的点才是真正的边界点
+
+            % recompute min_ranges: boundary hits are the min_ranges that are set to the boundary distance and are not valid hits
             boundary_hits = abs(min_ranges - t_boundary) < 1e-3;
             valid_hits = (min_ranges < obj.beamRange) & (~boundary_hits);
             if any(valid_hits)

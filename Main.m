@@ -78,29 +78,14 @@ fig.Position = [100 100 1100 720];
 
 btnW = 90; btnH = 22; gap = 25; startY = 640;
 
-function togMapvis(map)
-    if map.visible
-        set(map.h_terrain, 'Visible', 0);
-        set(map.h_trees, 'Visible', 0);
-        set(map.h_rocks, 'Visible', 0);
-        set(map.h_bushes, 'Visible', 0);
-    else
-        set(map.h_terrain, 'Visible', 1);
-        set(map.h_trees, 'Visible', 1);
-        set(map.h_rocks, 'Visible', 1);
-        set(map.h_bushes, 'Visible', 1);
-    end
-    map.visible = ~map.visible;
-end
-
 % Map elements
 uicontrol('Style', 'togglebutton', 'String', 'Map', ...
     'Position', [10 startY btnW btnH], 'Value', 1, ...
-    'Callback', @(src,~) togMapvis(map));
+    'Callback', @(src,~) map.visTog());
 
 % Mapper elements
 uicontrol('Style', 'togglebutton', 'String', 'LiDAR pts', ...
-    'Position', [10 startY-gap*5 btnW btnH], 'Value', 1, ...
+    'Position', [10 startY - gap*2 btnW btnH], 'Value', 1, ...
     'Callback', @(src,~) set(mapper.h_globalMapPlot, 'Visible', getVis(src)));
 
 uicontrol('Style', 'togglebutton', 'String', 'Curr Sites', ...

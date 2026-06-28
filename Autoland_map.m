@@ -5,19 +5,20 @@ classdef Autoland_map < handle
         gridRes = 0.5;      % Grid resolution in meters
         X, Y, Z_ground;     % Terrain grid
         Fterrain;           % Terrain height interpolation function
-        
+
         % Obstacle coordinates storage matrix
         treeLocations = []; % [tx, ty, trunkR, trunkH, h_base, canopyR, branchNum]
         rockLocations = []; % Rock [rx, ry, r_min, r_max, h_rock, h_base]
         bushLocations = []; % Bush grass [bx, by, r_bush, h_bush, h_base]
         leafClusters = [];  % Leaf clusters [cx, cy, cz, radius] from branch ends
-        
+
         %% Render handles, for visibility control
         visible = true;     % Map visibility flag
         h_terrain
         h_trees = []
         h_rocks = []
         h_bushes = []
+        h_trunks = []
     end
 
     methods
@@ -197,6 +198,24 @@ classdef Autoland_map < handle
             hold off;
             disp('Map environment generated successfully.');
         end
+
+        function visTog(obj)
+            if obj.visible
+                set(obj.h_terrain, 'Visible', 0);
+                set(obj.h_trees, 'Visible', 0);
+                set(obj.h_rocks, 'Visible', 0);
+                set(obj.h_bushes, 'Visible', 0);
+                set(obj.h_trunks, 'Visible', 0);
+            else
+                set(obj.h_terrain, 'Visible', 1);
+                set(obj.h_trees, 'Visible', 1);
+                set(obj.h_rocks, 'Visible', 1);
+                set(obj.h_bushes, 'Visible', 1);
+                set(obj.h_trunks, 'Visible', 1);
+            end
+            obj.visible = ~obj.visible;
+        end
+
     end
     methods (Access = private)
         % Private methods
@@ -227,6 +246,7 @@ classdef Autoland_map < handle
 
                     % The size of the leaf
                     leafW = 0.2 + rand()*0.22;
+                    leafL = leafW * (0.75 + rand()*0.35);
                     leafH = 0.3 + rand()*0.26;
 
                     % The base sphere of the leaf
@@ -248,7 +268,7 @@ classdef Autoland_map < handle
 
                     % Change the shape of the leaf to be an ellipsoid
                     sx = sx * leafW;
-                    sy = sy * leafW * (0.75 + rand()*0.35);
+                    sy = sy * leafL;
                     sz = sz * leafH;
 
                     % Random rotation of the leaf in the ellipsoid of the bush
@@ -278,11 +298,19 @@ classdef Autoland_map < handle
                     finalY = syRot + by + lOffY;
                     finalZ = szRot + groundZ;
 
-                    obj.surf_obj(finalX, finalY, finalZ, groundZ, leafColor, [0.82, 0.5, 0.6], 0.6 + rand() * 0.2);
+                    % Record the leaf center and size
+                    leafCenterX = bx + lOffX;
+                    leafCenterY = by + lOffY;
+                    leafGroundZ = groundZ + lOffZ;
+
+                    obj.bushLocations = [obj.bushLocations; leafCenterX, leafCenterY, leafW, leafL, leafH, leafGroundZ];
+
+                    blf_hd = obj.surf_obj(finalX, finalY, finalZ, groundZ, leafColor, [0.82, 0.5, 0.6], 0.6 + rand() * 0.2);
+                    obj.h_bushes = [obj.h_bushes, blf_hd];
                 end
 
                 % Store bush data for LiDAR detection
-                obj.bushLocations = [obj.bushLocations; bx, by, bushRadiusX, bushRadiusZ, groundZ];
+                % obj.bushLocations = [obj.bushLocations; bx, by, bushRadiusX, bushRadiusZ, groundZ];
             end
         end
 
@@ -355,8 +383,11 @@ classdef Autoland_map < handle
 
                 % The color of rocks
                 rockColor = [0.45 + rand() * 0.1, 0.5 + rand() * 0.1, 0.55 + rand() * 0.1];
-                obj.surf_obj(sx_rot + rx, sy_rot + ry, sz_rot + groundZ, groundZ, rockColor, ...
+
+                rock_hd = obj.surf_obj(sx_rot + rx, sy_rot + ry, sz_rot + groundZ, groundZ, rockColor, ...
                     [rand()*0.5 + 0.1, rand()*0.5 + 0.1, rand()*0.5 + 0.1], 0.9);
+
+                obj.h_rocks = [obj.h_rocks, rock_hd];
             end
 
         end
@@ -412,7 +443,8 @@ classdef Autoland_map < handle
             woodMatParam = [0.72, 0.02, 0.6];
             woodAlpha = 0.98;
             % Draw trunk (auto clipping at boundary/underground)
-            obj.surf_obj(trunkX, trunkY, trunkZ, rootGroundZ, trunkColor, woodMatParam, woodAlpha);
+            fall_trunk_hd = obj.surf_obj(trunkX, trunkY, trunkZ, rootGroundZ, trunkColor, woodMatParam, woodAlpha);
+            obj.h_trunks = [obj.h_trunks, fall_trunk_hd];
 
             % Generate branches
             for brIdx = 1 : branchNum
@@ -457,11 +489,12 @@ classdef Autoland_map < handle
                 % Random branch color
                 brColor = [woodBaseR*0.92, woodBaseG*0.92, woodBaseB*0.92];
                 % Draw branch (auto clipping at boundary/underground)
-                obj.surf_obj(brX, brY, brZ, rootGroundZ, brColor, woodMatParam, woodAlpha);
+                fall_br_hd = obj.surf_obj(brX, brY, brZ, rootGroundZ, brColor, woodMatParam, woodAlpha);
+                obj.h_trunks = [obj.h_trunks, fall_br_hd];
             end
         end
 
-        function surf_obj(obj, x, y, z, groundZ, color, objMaterial, alphaVal)
+        function hd = surf_obj(obj, x, y, z, groundZ, color, objMaterial, alphaVal)
 
             % Filter out the objects that are out of the map
             mapMin = 0;
@@ -479,7 +512,7 @@ classdef Autoland_map < handle
 
             % disp(color);
 
-            surf(x, y, z, 'FaceColor', color, 'EdgeColor', 'none', 'FaceAlpha', alphaVal);
+            hd = surf(x, y, z, 'FaceColor', color, 'EdgeColor', 'none', 'FaceAlpha', alphaVal);
             material(objMaterial);
         end
     end
