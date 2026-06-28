@@ -244,23 +244,86 @@ classdef Autoland_lidar < handle
 
             % 4. Rock intersection (bounding spheres)
             if ~isempty(obj.rockLocations)
-                rx = obj.rockLocations(:,1); ry = obj.rockLocations(:,2);
-                rr_min = obj.rockLocations(:,3); rr_max = obj.rockLocations(:,4);
-                rh = obj.rockLocations(:,5); rb = obj.rockLocations(:,6);
-                numRocks = length(rx);
+                % rx = obj.rockLocations(:,1); ry = obj.rockLocations(:,2);
+                % rr_min = obj.rockLocations(:,3); rr_max = obj.rockLocations(:,4);
+                % rh = obj.rockLocations(:,5); rb = obj.rockLocations(:,6);
+                % numRocks = length(rx);
+                % for i = 1:numRocks
+                %     rockR = max([rr_min(i), rr_max(i), rh(i)]) * 0.6;
+                %     rockCx = rx(i); rockCy = ry(i); rockCz = rb(i) + rh(i)*0.5;
+                %     vx = uav_pos(1) - rockCx; vy = uav_pos(2) - rockCy; vz = uav_pos(3) - rockCz;
+                %     B_sph = 2 .* (vx.*dirs(:,1) + vy.*dirs(:,2) + vz.*dirs(:,3));
+                %     C_sph = vx.^2 + vy.^2 + vz.^2 - rockR^2;
+                %     delta_sph = B_sph.^2 - 4.*C_sph;
+                %     valid_sph = delta_sph >= 0;
+                %     if any(valid_sph)
+                %         t_sph = (-B_sph(valid_sph) - sqrt(delta_sph(valid_sph))) ./ 2;
+                %         idx_sph = find(valid_sph);
+                %         final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                %         min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                %     end
+                % end
+                numRocks = size(obj.rockLocations, 1);
+
                 for i = 1:numRocks
-                    rockR = max([rr_min(i), rr_max(i), rh(i)]) * 0.6;
-                    rockCx = rx(i); rockCy = ry(i); rockCz = rb(i) + rh(i)*0.5;
-                    vx = uav_pos(1) - rockCx; vy = uav_pos(2) - rockCy; vz = uav_pos(3) - rockCz;
-                    B_sph = 2 .* (vx.*dirs(:,1) + vy.*dirs(:,2) + vz.*dirs(:,3));
-                    C_sph = vx.^2 + vy.^2 + vz.^2 - rockR^2;
-                    delta_sph = B_sph.^2 - 4.*C_sph;
-                    valid_sph = delta_sph >= 0;
-                    if any(valid_sph)
-                        t_sph = (-B_sph(valid_sph) - sqrt(delta_sph(valid_sph))) ./ 2;
-                        idx_sph = find(valid_sph);
-                        final_sph = idx_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
-                        min_ranges(final_sph) = t_sph(t_sph > 0 & t_sph < min_ranges(idx_sph));
+                    cx = obj.rockLocations(i, 1);
+                    cy = obj.rockLocations(i, 2);
+                    cz = obj.rockLocations(i, 3);
+                    a  = obj.rockLocations(i, 4);
+                    b  = obj.rockLocations(i, 5);
+                    c  = obj.rockLocations(i, 6);
+
+                    rotZ = obj.rockLocations(i, 7);
+                    rotX = obj.rockLocations(i, 8);
+                    rotY = obj.rockLocations(i, 9);
+
+                    % Build the rotation matrix
+                    Rz = [cos(rotZ), -sin(rotZ), 0;
+                        sin(rotZ),  cos(rotZ), 0;
+                        0,          0,         1];
+                    Rx = [1, 0,          0;
+                        0, cos(rotX), -sin(rotX);
+                        0, sin(rotX),  cos(rotX)];
+                    Ry = [cos(rotY), 0, sin(rotY);
+                        0,         1, 0;
+                        -sin(rotY), 0, cos(rotY)];
+                    R = Rz * Ry * Rx;
+
+                    % Transform the ray to local coordinates
+                    local_origin = R' * ([uav_pos(1); uav_pos(2); uav_pos(3)] - [cx; cy; cz]);
+                    local_dirs = (R' * dirs')';
+
+                    % Get the intersection of the ray with the ellipsoid
+                    ox = local_origin(1) / a;
+                    oy = local_origin(2) / b;
+                    oz = local_origin(3) / c;
+
+                    dx = local_dirs(:,1) / a;
+                    dy = local_dirs(:,2) / b;
+                    dz = local_dirs(:,3) / c;
+
+                    A = dx.^2 + dy.^2 + dz.^2;
+                    B = 2 * (ox*dx + oy*dy + oz*dz);
+                    C = ox^2 + oy^2 + oz^2 - 1;
+
+                    delta = B.^2 - 4*A.*C;
+                    valid = delta >= 0;
+
+                    if any(valid)
+                        sqrt_d = sqrt(delta(valid));
+                        Av = A(valid);
+                        Bv = B(valid);
+
+                        t1 = (-Bv - sqrt_d) ./ (2*Av);
+                        t2 = (-Bv + sqrt_d) ./ (2*Av);
+
+                        t_candidates = [t1, t2];
+                        t_candidates(t_candidates <= 0) = inf;
+                        t_hit = min(t_candidates, [], 2);
+
+                        idx = find(valid);
+                        hit = t_hit < min_ranges(idx);
+                        min_ranges(idx(hit)) = t_hit(hit);
                     end
                 end
             end

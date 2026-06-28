@@ -303,64 +303,48 @@ classdef Autoland_map < handle
                     leafCenterY = by + lOffY;
                     leafGroundZ = groundZ + lOffZ;
 
+                    % Save each leaf center and size in the bushLocations
                     obj.bushLocations = [obj.bushLocations; leafCenterX, leafCenterY, leafW, leafL, leafH, leafGroundZ];
 
+                    % Surf the leaf
                     blf_hd = obj.surf_obj(finalX, finalY, finalZ, groundZ, leafColor, [0.82, 0.5, 0.6], 0.6 + rand() * 0.2);
                     obj.h_bushes = [obj.h_bushes, blf_hd];
                 end
 
-                % Store bush data for LiDAR detection
-                % obj.bushLocations = [obj.bushLocations; bx, by, bushRadiusX, bushRadiusZ, groundZ];
             end
         end
 
         function build_rock(obj, rock_number)
             for i = 1:rock_number
+                % Random position of the rock
                 rx = rand() * 30;
                 ry = rand() * 30;
                 groundZ = obj.Fterrain(rx, ry);
 
-                % rock size coefficient
                 rcof = 1.2;
-                % rock shape
                 r_min = (0.4 + rand() * 0.4) * rcof;
                 r_max = (r_min + rand() * 0.1) * rcof;
                 h_rock = (0.4 + rand() * 0.2) * rcof;
-                % disp([r_min, r_max, h_rock, groundZ]);
 
-                obj.rockLocations = [obj.rockLocations; rx, ry, r_min, r_max, h_rock, groundZ];
-
-                % rock orientation
-                res = randi([30, 60]);
-                [sx, sy, sz] = sphere(res);
-                [TH, PH] = cart2sph(sx, sy, sz);
-
-                noise1 = 0.25 * sin(2*TH) .* cos(1.5*PH);
-                noise2 = 0.01 * randn(size(sx));
-
-                totalNoise = 1 + noise1 + noise2;
-                minR = 1.2;
-                maxR = 1.8;
-                totalNoise(totalNoise < minR) = minR;
-                totalNoise(totalNoise > maxR) = maxR;
-
-                sx = sx .* totalNoise;
-                sy = sy .* totalNoise;
-                sz = sz .* totalNoise;
-
-                % Random scale rocks
+                % The axis of rocks
                 scaleX = r_max * (0.9 + rand()*0.25);
                 scaleY = r_min * (0.9 + rand()*0.25);
                 scaleZ = h_rock * (0.8 + rand()*0.4);
-                sx = sx * scaleX;
-                sy = sy * scaleY;
-                sz = sz * scaleZ;
 
-                % Random rotate rocks
+                % Random rotation of the rock
                 rotZ = rand() * 2*pi;
                 rotX = rand() * pi/4;
                 rotY = rand() * pi/5;
 
+                % The depth of bury the rock in the ground
+                buryRatio = 0.25 + rand()*0.3;
+                buryDepth = buryRatio * h_rock;
+                cz = groundZ + buryDepth;
+
+                % Save each rock center and size in the rockLocations
+                obj.rockLocations = [obj.rockLocations; rx, ry, cz, scaleX, scaleY, scaleZ, rotZ, rotX, rotY];
+
+                % The rotation matrix of the rock
                 Rz = [cos(rotZ), -sin(rotZ), 0;
                     sin(rotZ),  cos(rotZ), 0;
                     0,          0,         1];
@@ -372,24 +356,34 @@ classdef Autoland_map < handle
                     -sin(rotY), 0, cos(rotY)];
                 rotMat = Rz * Ry * Rx;
 
+                % Generate the rock surface
+                res = randi([30, 60]);
+                [sx, sy, sz] = sphere(res);
+                [TH, PH] = cart2sph(sx, sy, sz);
+
+                noise1 = 0.25 * sin(2*TH) .* cos(1.5*PH);
+                noise2 = 0.01 * randn(size(sx));
+                totalNoise = 1 + noise1 + noise2;
+                totalNoise(totalNoise < 1.2) = 1.2;
+                totalNoise(totalNoise > 1.8) = 1.8;
+
+                sx = sx .* totalNoise * scaleX;
+                sy = sy .* totalNoise * scaleY;
+                sz = sz .* totalNoise * scaleZ;
+
                 pts = rotMat * [sx(:)'; sy(:)'; sz(:)'];
                 sx_rot = reshape(pts(1,:), size(sx));
                 sy_rot = reshape(pts(2,:), size(sy));
                 sz_rot = reshape(pts(3,:), size(sz));
 
-                % Random bury rocks in the empty land
-                buryRatio = 0.25 + rand()*0.3;
-                sz_rot = sz_rot + buryRatio * h_rock;
+                sz_rot = sz_rot + buryDepth;
 
-                % The color of rocks
-                rockColor = [0.45 + rand() * 0.1, 0.5 + rand() * 0.1, 0.55 + rand() * 0.1];
-
+                rockColor = [0.45 + rand()*0.1, 0.5 + rand()*0.1, 0.55 + rand()*0.1];
                 rock_hd = obj.surf_obj(sx_rot + rx, sy_rot + ry, sz_rot + groundZ, groundZ, rockColor, ...
                     [rand()*0.5 + 0.1, rand()*0.5 + 0.1, rand()*0.5 + 0.1], 0.9);
 
                 obj.h_rocks = [obj.h_rocks, rock_hd];
             end
-
         end
 
         function build_fallen_trunk(obj, branchNum, posx, posy)
